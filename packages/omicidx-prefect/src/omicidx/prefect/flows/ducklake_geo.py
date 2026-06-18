@@ -130,7 +130,10 @@ SELECT * EXCLUDE (rn) FROM (
         trim(scan_protocol) AS scan_protocol,
         data_row_count,
         library_source,
-        sra_experiment,
+        -- read_ndjson_auto(union_by_name=true) infers this scalar accession
+        -- as JSON across the heterogeneous gsm/** partitions; unwrap to a
+        -- plain VARCHAR so joins on the SRX id don't need json trimming (#109).
+        sra_experiment ->> '$' AS sra_experiment,
         trim(data_processing) AS data_processing,
         supplemental_files,
         channels,
@@ -153,7 +156,7 @@ SELECT * EXCLUDE (rn) FROM (
             scan_protocol: trim(scan_protocol),
             data_row_count: data_row_count,
             library_source: library_source,
-            sra_experiment: sra_experiment,
+            sra_experiment: sra_experiment ->> '$',
             data_processing: trim(data_processing),
             supplemental_files: supplemental_files,
             channels: channels,
