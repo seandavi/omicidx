@@ -9,27 +9,25 @@ files. Because PubMed update packages can revise *any* historical PMID
 a high-water mark would silently miss back-dated revisions. A full-
 snapshot read is therefore correct.
 
-The `_row_hash` gate makes this efficient: unchanged rows that match the
-hash are not updated, so DuckLake (copy-on-write) writes no new data
-files for them and only a trivial catalog snapshot is produced. The
-merge is therefore incremental at the storage level even though the SQL
-source is a full scan.
+The `upsert` change-gate makes this efficient: unchanged rows (IS DISTINCT
+FROM matches nothing) are not updated, so DuckLake (copy-on-write) writes
+no new data files for them and only a trivial catalog snapshot is
+produced. The merge is therefore incremental at the storage level even
+though the SQL source is a full scan.
 
 DELETE handling
 ---------------
 Raw parquet rows with ``delete IS TRUE`` are PubMed retraction/deletion
-records. After the MERGE (which excludes deleted PMIDs from the upsert
-via ``WHERE delete IS NOT TRUE``) we run a DELETE inside its own labeled
-transaction to purge any previously loaded PMIDs that subsequently
-appeared as deletions.
-
-This module intentionally does NOT modify ``ducklake.py`` or any shared
-helper — the DELETE is entity-specific and stays here.
+records. After the upsert (which excludes deleted PMIDs via
+``WHERE delete IS NOT TRUE``) we run a DELETE inside the same ``ops.run``
+block, attributed via ``r.attribute("deletes")``, to purge any previously
+loaded PMIDs that subsequently appeared as deletions.
 """
 
-import orjson
-from omicidx.prefect.config import get_duckdb_path, get_ducklake_connection
-from omicidx.prefect.flows.ducklake import LAKE_SCHEMA, _commit_extra, merge_to_ducklake
+from cdsci.lake import ops
+from cdsci.lake.connect import upsert
+from omicidx.prefect.config import get_duckdb_path, get_lake_connection
+from omicidx.prefect.flows.ducklake import LAKE_SCHEMA
 
 from prefect import get_run_logger, task
 from prefect.runtime import flow_run
@@ -42,10 +40,8 @@ from prefect.runtime import flow_run
 # with the following additions:
 #   - WHERE delete IS NOT TRUE  (exclude retraction records from the live table)
 #   - QUALIFY dedup by (pmid, date_revised DESC, date_completed DESC)
-#   - _row_hash over all non-key payload columns
 #
-# Double braces {{ }} are literal DuckDB struct syntax; only {path} is
-# a Python format placeholder.
+# Only {path} is a Python format placeholder.
 _PUBMED_SOURCE = """
 SELECT * EXCLUDE (rn) FROM (
     SELECT
@@ -74,32 +70,6 @@ SELECT * EXCLUDE (rn) FROM (
         trim(issn_linking)             AS issn_linking,
         trim(country)                  AS country,
         grant_ids,
-        md5(to_json({{
-            title:              trim(title),
-            issue:              trim(issue),
-            pages:              trim(pages),
-            abstract:           trim(abstract),
-            journal:            trim(journal),
-            authors:            authors,
-            pubdate:            trim(pubdate),
-            mesh_terms:         trim(mesh_terms),
-            publication_types:  trim(publication_types),
-            chemical_list:      trim(chemical_list),
-            keywords:           trim(keywords),
-            doi:                trim(doi),
-            'references':       "references",
-            languages:          trim(languages),
-            vernacular_title:   trim(vernacular_title),
-            date_completed:     trim(date_completed),
-            date_revised:       trim(date_revised),
-            pmc:                trim(pmc),
-            other_id:           trim(other_id),
-            medline_ta:         trim(medline_ta),
-            nlm_unique_id:      trim(nlm_unique_id),
-            issn_linking:       trim(issn_linking),
-            country:            trim(country),
-            grant_ids:          grant_ids
-        }})) AS _row_hash,
         row_number() OVER (
             PARTITION BY pmid
             ORDER BY
@@ -118,76 +88,47 @@ SELECT * EXCLUDE (rn) FROM (
 
 @task(retries=1, retry_delay_seconds=60)
 def pubmed_to_ducklake(lake_schema: str = LAKE_SCHEMA) -> dict:
-    """MERGE raw pubmed → lake.<lake_schema>.pubmed_article; DELETE retracted PMIDs.
+    """Upsert raw pubmed → lake.<lake_schema>.pubmed_article; DELETE retracted PMIDs.
 
     Full-snapshot strategy: all raw parquet files are scanned on every run.
-    Unchanged rows (matching ``_row_hash``) generate no data writes in DuckLake.
-    Rows with ``delete IS TRUE`` are excluded from the MERGE and then
-    explicitly deleted from the lake table in a separate labeled transaction.
+    Unchanged rows generate no data writes in DuckLake (upsert gates on IS
+    DISTINCT FROM). Rows with ``delete IS TRUE`` are excluded from the upsert
+    and then explicitly deleted from the lake table in the same ``ops.run``
+    block, attributed via ``r.attribute("deletes")`` (its own snapshot).
 
-    Returns a dict with ``table``, ``row_count`` (post-merge), and
-    ``deleted_count`` (PMIDs removed by the delete pass).
+    Returns the ``ops.run`` summary plus ``deleted_count`` (PMIDs removed by
+    the delete pass).
     """
     log = get_run_logger()
     raw = get_duckdb_path("pubmed", "raw", "*.parquet")
     source_sql = _PUBMED_SOURCE.format(path=raw)
-    table = "pubmed_article"
-    fqn = f"lake.{lake_schema}.{table}"
+    target = f"lake.{lake_schema}.pubmed_article"
 
-    with get_ducklake_connection() as con:
-        log.info(f"Merging {raw} → {fqn}")
-        rows = merge_to_ducklake(
+    # PubMed signals article deletions via rows with delete=TRUE in raw.
+    # These rows are excluded from the upsert above; now remove any
+    # previously loaded PMIDs that appear in the delete set.
+    delete_set = (
+        f"SELECT DISTINCT trim(pmid) FROM read_parquet('{raw}') WHERE delete IS TRUE"
+    )
+
+    with get_lake_connection() as con:
+        log.info(f"Merging {raw} → {target}")
+        with ops.run(
             con,
-            schema=lake_schema,
-            table=table,
-            source_sql=source_sql,
-            key="pmid",
-            commit_message=f"ducklake-load: {table} → {lake_schema}",
-            commit_extra_info=_commit_extra(entity=table, source=raw),
-        )
-        log.info(f"{fqn} holds {rows:,} rows after merge")
+            source="pubmed",
+            target=target,
+            extra={"prefect_run_id": flow_run.get_id()},
+        ) as r:
+            r.rows = upsert(con, target, source_sql, key="pmid")
+            log.info(f"{target} holds {r.rows:,} rows after merge")
 
-        # -- delete retracted PMIDs ------------------------------------------
-        # PubMed signals article deletions via rows with delete=TRUE in raw.
-        # These rows were excluded from the MERGE above; now remove any
-        # previously loaded PMIDs that appear in the delete set.
-        delete_extra = orjson.dumps(
-            {
-                "prefect_run_id": flow_run.get_id(),
-                "entity": table,
-                "source": raw,
-                "operation": "delete_retracted",
-            }
-        ).decode()
+            # DELETE in its own attributed snapshot inside the same run.
+            with r.attribute("deletes"):
+                # DuckDB has no changes(); count rows that will go first.
+                deleted_count = con.execute(
+                    f"SELECT count(*) FROM {target} WHERE pmid IN ({delete_set})"
+                ).fetchone()[0]
+                con.execute(f"DELETE FROM {target} WHERE pmid IN ({delete_set})")
 
-        delete_set = (
-            f"SELECT DISTINCT trim(pmid) FROM read_parquet('{raw}') "
-            "WHERE delete IS TRUE"
-        )
-        con.execute("BEGIN TRANSACTION")
-        try:
-            con.execute(
-                "CALL ducklake_set_commit_message('lake', ?, ?, extra_info := ?)",
-                [
-                    "prefect:ducklake-load",
-                    f"ducklake-load: {table} deletes → {lake_schema}",
-                    delete_extra,
-                ],
-            )
-            # DuckDB has no changes(); count rows that will go before deleting.
-            deleted_count = con.execute(
-                f"SELECT count(*) FROM {fqn} WHERE pmid IN ({delete_set})"
-            ).fetchone()[0]
-            con.execute(f"DELETE FROM {fqn} WHERE pmid IN ({delete_set})")
-            con.execute("COMMIT")
-        except Exception:
-            con.execute("ROLLBACK")
-            raise
-
-        log.info(f"Deleted {deleted_count:,} retracted PMIDs from {fqn}")
-
-    return {
-        "table": f"{lake_schema}.{table}",
-        "row_count": rows,
-        "deleted_count": deleted_count,
-    }
+        log.info(f"Deleted {deleted_count:,} retracted PMIDs from {target}")
+        return r.summary() | {"deleted_count": deleted_count}

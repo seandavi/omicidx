@@ -633,6 +633,18 @@ wheels = [
 ]
 
 [[package]]
+name = "cdsci-lake"
+version = "0.2.1"
+source = { git = "https://github.com/seandavi/cdsci-lake?rev=v0.2.1#a5b1a6c02c10bd95f34306dc7c7d745d6b6706f1" }
+dependencies = [
+    { name = "duckdb" },
+    { name = "httpx" },
+    { name = "loguru" },
+    { name = "pydantic-settings" },
+    { name = "tenacity" },
+]
+
+[[package]]
 name = "certifi"
 version = "2026.2.25"
 source = { registry = "https://pypi.org/simple" }
@@ -3122,6 +3134,7 @@ source = { editable = "packages/omicidx-prefect" }
 dependencies = [
     { name = "anyio", extra = ["trio"] },
     { name = "asyncpg" },
+    { name = "cdsci-lake" },
     { name = "click" },
     { name = "duckdb" },
     { name = "httpx" },
@@ -3145,6 +3158,7 @@ dependencies = [
 requires-dist = [
     { name = "anyio", extras = ["trio"], specifier = ">=4.0" },
     { name = "asyncpg", specifier = ">=0.30" },
+    { name = "cdsci-lake", git = "https://github.com/seandavi/cdsci-lake?rev=v0.2.1" },
     { name = "click", specifier = ">=8.0" },
     { name = "duckdb", specifier = ">=1.5.3" },
     { name = "httpx", specifier = ">=0.28" },
@@ -3892,16 +3906,16 @@ wheels = [
 
 [[package]]
 name = "pydantic-settings"
-version = "2.14.0"
+version = "2.14.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pydantic" },
     { name = "python-dotenv" },
     { name = "typing-inspection" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/42/98/c8345dccdc31de4228c039a98f6467a941e39558da41c1744fbe29fa5666/pydantic_settings-2.14.0.tar.gz", hash = "sha256:24285fd4b0e0c06507dd9fdfd331ee23794305352aaec8fc4eb92d4047aeb67d", size = 235709, upload-time = "2026-04-20T13:37:40.293Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/5c/b5/8f48e906c3e0205276e8bd8cb7512217a87b2685304d64be27cad5b3019f/pydantic_settings-2.14.2.tar.gz", hash = "sha256:c19dd64b19097f1de80184f0cc7b0272a13ae6e170cbf240a3e27e381ed14a5f", size = 237700, upload-time = "2026-06-19T13:44:56.324Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/01/dd/bebff3040138f00ae8a102d426b27349b9a49acc310fcae7f92112d867e3/pydantic_settings-2.14.0-py3-none-any.whl", hash = "sha256:fc8d5d692eb7092e43c8647c1c35a3ecd00e040fcf02ed86f4cb5458ca62182e", size = 60940, upload-time = "2026-04-20T13:37:38.586Z" },
+    { url = "https://files.pythonhosted.org/packages/77/c1/6e422f34e569cf8e18df68d1939c81c099d2b61e4f7d9621c8a77560799c/pydantic_settings-2.14.2-py3-none-any.whl", hash = "sha256:a20c97b37910b6550d5ea50fbcc2d4187defe58cd57070b73863d069419c9440", size = 61715, upload-time = "2026-06-19T13:44:55.02Z" },
 ]
 
 [[package]]

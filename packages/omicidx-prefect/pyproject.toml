@@ -27,6 +27,7 @@ dependencies = [
     "python-dateutil>=2.9",
     "pydantic-settings>=2.0",
     "click>=8.0",
+    "cdsci-lake @ git+https://github.com/seandavi/cdsci-lake@v0.2.1",
 ]
 
 [project.scripts]

@@ -1,33 +1,32 @@
 """DuckLake load flow for the four SRA entities (incremental by date).
 
 SRA raw lands as hive-partitioned parquet under `sra/raw/<entity>/date=.../
-stage=.../*.parquet`. Each entity here is MERGEd into the DuckLake catalog
+stage=.../*.parquet`. Each entity here is upserted into the DuckLake catalog
 by `accession`, reusing the deduped/typed projection from `consolidate.py`
 (those SELECTs are authoritative).
 
 Because SRA is large and grows daily, these tasks are *source-incremental*:
-a `HighWaterMark` per entity stores the highest raw `date` partition already
-merged. On a normal run the MERGE source only scans partitions with
-`date >= <high_water>` (INCLUSIVE — re-reading the boundary day is a safe
-no-op because the `_row_hash` gate suppresses unchanged-row UPDATEs and
-DuckLake is copy-on-write). A `force=True` run drops the filter and scans
-all partitions (full backfill / reconciliation).
+a per-entity, per-schema watermark in the lake ledger (source `sra`, name
+`<lake_schema>:<entity>`, e.g. `omicidx:sra_study`) stores the highest raw
+`date` partition already merged. On a normal run the upsert source only scans
+partitions with `date >= <high_water>` (INCLUSIVE — re-reading the boundary
+day is a safe no-op because `upsert` gates on IS DISTINCT FROM and DuckLake is
+copy-on-write). A `force=True` run drops the filter and scans all partitions
+(full backfill / reconciliation).
 
-After a successful merge the watermark is advanced to `max(date)` present in
+After a successful upsert the watermark is advanced to `max(date)` present in
 raw. `cdsci-lake` (the catalog bucket) is ducklake-controlled exclusively;
 raw is read from PUBLISH_ROOT via `get_duckdb_path`.
 """
 
 import duckdb
-from omicidx.prefect.config import get_duckdb_path, get_ducklake_connection
-from omicidx.prefect.flows.ducklake import (
-    LAKE_SCHEMA,
-    HighWaterMark,
-    _commit_extra,
-    merge_to_ducklake,
-)
+from cdsci.lake import ops
+from cdsci.lake.connect import upsert
+from omicidx.prefect.config import get_duckdb_path, get_lake_connection
+from omicidx.prefect.flows.ducklake import LAKE_SCHEMA
 
 from prefect import flow, get_run_logger, task
+from prefect.runtime import flow_run
 
 # ---------------------------------------------------------------------------
 # Per-entity source projections.
@@ -35,10 +34,9 @@ from prefect import flow, get_run_logger, task
 # Each is a python str.format(path=..., filt=...) template:
 #   {path} — the r2:// glob for the entity's raw partitions
 #   {filt} — "" or "date >= '<high_water>'" (the incremental scope)
-# Struct literals for md5(to_json(...)) are written with DOUBLED braces so
-# str.format leaves them intact. The column lists mirror consolidate.py's
-# sra_*_parquet projections exactly (those are authoritative); we add a
-# payload `_row_hash` and the standard date/stage dedup QUALIFY.
+# The column lists mirror consolidate.py's sra_*_parquet projections exactly
+# (those are authoritative); we add the standard date/stage dedup QUALIFY.
+# `upsert` gates UPDATEs on IS DISTINCT FROM, so no `_row_hash` column.
 # ---------------------------------------------------------------------------
 
 _STUDY_SOURCE = """
@@ -53,16 +51,7 @@ SELECT
     trim(broker_name) AS broker_name,
     trim("BioProject") AS bioproject,
     trim("GEO") AS geo,
-    identifiers, attributes, xrefs, pubmed_ids,
-    md5(to_json({{
-        study_accession: trim(study_accession), alias: trim(alias),
-        title: trim(title), description: trim(description),
-        abstract: trim(abstract), study_type: trim(study_type),
-        center_name: trim(center_name), broker_name: trim(broker_name),
-        bioproject: trim("BioProject"), geo: trim("GEO"),
-        identifiers: identifiers, attributes: attributes,
-        xrefs: xrefs, pubmed_ids: pubmed_ids
-    }})) AS _row_hash
+    identifiers, attributes, xrefs, pubmed_ids
 FROM read_parquet('{path}', hive_partitioning=true)
 {filt}
 QUALIFY row_number() OVER (
@@ -78,13 +67,7 @@ SELECT
     trim(description) AS description,
     taxon_id,
     trim("BioSample") AS biosample,
-    identifiers, attributes, xrefs,
-    md5(to_json({{
-        alias: trim(alias), title: trim(title),
-        organism: trim(organism), description: trim(description),
-        taxon_id: taxon_id, biosample: trim("BioSample"),
-        identifiers: identifiers, attributes: attributes, xrefs: xrefs
-    }})) AS _row_hash
+    identifiers, attributes, xrefs
 FROM read_parquet('{path}', hive_partitioning=true)
 {filt}
 QUALIFY row_number() OVER (
@@ -112,27 +95,7 @@ SELECT
     trim(library_source) AS library_source,
     trim(library_selection) AS library_selection,
     spot_length, nreads,
-    identifiers, attributes, xrefs, reads,
-    md5(to_json({{
-        experiment_accession: trim(experiment_accession),
-        alias: trim(alias), title: trim(title), design: trim(design),
-        center_name: trim(center_name),
-        study_accession: trim(study_accession),
-        sample_accession: trim(sample_accession),
-        platform: trim(platform),
-        instrument_model: trim(instrument_model),
-        library_name: trim(library_name),
-        library_construction_protocol: trim(library_construction_protocol),
-        library_layout: trim(library_layout),
-        library_layout_length: trim(library_layout_length),
-        library_layout_sdev: trim(library_layout_sdev),
-        library_strategy: trim(library_strategy),
-        library_source: trim(library_source),
-        library_selection: trim(library_selection),
-        spot_length: spot_length, nreads: nreads,
-        identifiers: identifiers, attributes: attributes,
-        xrefs: xrefs, reads: reads
-    }})) AS _row_hash
+    identifiers, attributes, xrefs, reads
 FROM read_parquet('{path}', hive_partitioning=true)
 {filt}
 QUALIFY row_number() OVER (
@@ -146,80 +109,13 @@ SELECT
     trim(alias) AS alias,
     trim(experiment_accession) AS experiment_accession,
     trim(title) AS title,
-    identifiers, attributes, qualities,
-    md5(to_json({{
-        alias: trim(alias),
-        experiment_accession: trim(experiment_accession),
-        title: trim(title), identifiers: identifiers,
-        attributes: attributes, qualities: qualities
-    }})) AS _row_hash
+    identifiers, attributes, qualities
 FROM read_parquet('{path}', hive_partitioning=true)
 {filt}
 QUALIFY row_number() OVER (
     PARTITION BY accession ORDER BY date DESC, stage DESC
 ) = 1
 """
-
-
-def _merge_sra(
-    entity: str,
-    table: str,
-    raw_subdir: str,
-    source_template: str,
-    lake_schema: str,
-    force: bool,
-) -> dict:
-    """Incrementally MERGE one SRA entity's raw partitions into the lake.
-
-    Shared body for the four public tasks. Wires the per-entity
-    `HighWaterMark`: read the stored watermark, scope the MERGE source to
-    `date >= <watermark>` (unless first run or force), merge, then advance
-    the watermark to the max raw `date` actually present.
-    """
-    log = get_run_logger()
-    raw = get_duckdb_path("sra", "raw", raw_subdir, "**", "*parquet")
-    hwm = HighWaterMark(entity, lake_schema)
-    last = hwm.get()
-
-    if last is not None and not force:
-        filt = f"WHERE date >= '{last}'"
-        log.info(f"{entity}: incremental scope date >= {last}")
-    else:
-        filt = ""
-        reason = "force=True" if force else "no prior watermark"
-        log.info(f"{entity}: full scan ({reason})")
-
-    source_sql = source_template.format(path=raw, filt=filt)
-
-    with get_ducklake_connection() as con:
-        log.info(f"Merging {raw} → lake.{lake_schema}.{table}")
-        rows = merge_to_ducklake(
-            con,
-            schema=lake_schema,
-            table=table,
-            source_sql=source_sql,
-            key="accession",
-            commit_message=f"ducklake-load: {entity} → {lake_schema}",
-            commit_extra_info=_commit_extra(
-                entity=entity, source=raw, high_water_from=last
-            ),
-        )
-        new_max = _max_raw_date(con, raw)
-
-    if new_max is not None:
-        hwm.set(str(new_max), row_count=rows)
-        log.info(f"{entity}: watermark advanced to {new_max}")
-    else:
-        log.warning(f"{entity}: no raw partitions found; watermark unchanged")
-
-    log.info(f"lake.{lake_schema}.{table} now holds {rows:,} rows")
-    return {
-        "table": f"{lake_schema}.{table}",
-        "row_count": rows,
-        "high_water_from": last,
-        "high_water_to": str(new_max) if new_max is not None else None,
-        "forced": force,
-    }
 
 
 def _max_raw_date(con: duckdb.DuckDBPyConnection, raw: str) -> object | None:
@@ -234,9 +130,67 @@ def _max_raw_date(con: duckdb.DuckDBPyConnection, raw: str) -> object | None:
     return row[0] if row else None
 
 
+def _merge_sra(
+    entity: str,
+    table: str,
+    raw_subdir: str,
+    source_template: str,
+    lake_schema: str,
+    force: bool,
+) -> dict:
+    """Incrementally upsert one SRA entity's raw partitions into the lake.
+
+    Shared body for the four public tasks. The watermark lives in the lake
+    ledger keyed per-entity, per-schema (source `sra`, name
+    `<lake_schema>:<entity>`): read it, scope the source to `date >= <wm>`
+    (unless first run or force), upsert, then advance it to the max raw
+    `date` actually present — all inside one `ops.run` block.
+    """
+    log = get_run_logger()
+    raw = get_duckdb_path("sra", "raw", raw_subdir, "**", "*parquet")
+    target = f"lake.{lake_schema}.{table}"
+    wm_name = f"{lake_schema}:{entity}"
+
+    with get_lake_connection() as con:
+        last = None if force else ops.get_watermark(con, "sra", wm_name)
+        if last is not None:
+            filt = f"WHERE date >= '{last}'"
+            log.info(f"{entity}: incremental scope date >= {last}")
+        else:
+            filt = ""
+            reason = "force=True" if force else "no prior watermark"
+            log.info(f"{entity}: full scan ({reason})")
+
+        source_sql = source_template.format(path=raw, filt=filt)
+        new_max = _max_raw_date(con, raw)  # partition metadata only; cheap
+
+        log.info(f"Merging {raw} → {target}")
+        with ops.run(
+            con,
+            source="sra",
+            target=target,
+            version=str(new_max) if new_max is not None else None,
+            extra={"prefect_run_id": flow_run.get_id()},
+        ) as r:
+            r.rows = upsert(con, target, source_sql, key="accession")
+            if new_max is not None:
+                ops.set_watermark(con, "sra", wm_name, str(new_max), run_id=r.run_id)
+
+        if new_max is not None:
+            log.info(f"{entity}: watermark advanced to {new_max}")
+        else:
+            log.warning(f"{entity}: no raw partitions found; watermark unchanged")
+        log.info(f"{target} now holds {r.rows:,} rows")
+        return r.summary() | {
+            "high_water_from": last,
+            "high_water_to": str(new_max) if new_max is not None else None,
+            "forced": force,
+        }
+
+
 @task(retries=1, retry_delay_seconds=60)
 def sra_study_to_ducklake(lake_schema: str = LAKE_SCHEMA, force: bool = False) -> dict:
-    """MERGE raw SRA study partitions → lake.<lake_schema>.sra_study."""
+    """Upsert raw SRA study partitions → lake.<lake_schema>.sra_study."""
     return _merge_sra(
         entity="sra_study",
         table="sra_study",
@@ -249,7 +203,7 @@ def sra_study_to_ducklake(lake_schema: str = LAKE_SCHEMA, force: bool = False) -
 
 @task(retries=1, retry_delay_seconds=60)
 def sra_sample_to_ducklake(lake_schema: str = LAKE_SCHEMA, force: bool = False) -> dict:
-    """MERGE raw SRA sample partitions → lake.<lake_schema>.sra_sample."""
+    """Upsert raw SRA sample partitions → lake.<lake_schema>.sra_sample."""
     return _merge_sra(
         entity="sra_sample",
         table="sra_sample",
@@ -264,7 +218,7 @@ def sra_sample_to_ducklake(lake_schema: str = LAKE_SCHEMA, force: bool = False) 
 def sra_experiment_to_ducklake(
     lake_schema: str = LAKE_SCHEMA, force: bool = False
 ) -> dict:
-    """MERGE raw SRA experiment partitions → lake.<lake_schema>.sra_experiment."""
+    """Upsert raw SRA experiment partitions → lake.<lake_schema>.sra_experiment."""
     return _merge_sra(
         entity="sra_experiment",
         table="sra_experiment",
@@ -277,7 +231,7 @@ def sra_experiment_to_ducklake(
 
 @task(retries=1, retry_delay_seconds=60)
 def sra_run_to_ducklake(lake_schema: str = LAKE_SCHEMA, force: bool = False) -> dict:
-    """MERGE raw SRA run partitions → lake.<lake_schema>.sra_run."""
+    """Upsert raw SRA run partitions → lake.<lake_schema>.sra_run."""
     return _merge_sra(
         entity="sra_run",
         table="sra_run",
