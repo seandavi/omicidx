@@ -1,6 +1,6 @@
 """Top-level DuckLake load flow.
 
-Assembles every per-entity loader into one flow that MERGEs raw data into
+Assembles every per-entity loader into one flow that upserts raw data into
 `lake.<schema>.*`. Sits between `raw-extract` and `postgres-load` in the
 daily pipeline (wired in P3). Shared helpers live in `ducklake.py`; each
 entity's source projection + task lives in its own `ducklake_<entity>.py`
@@ -38,7 +38,7 @@ from prefect import flow
 
 @flow(name="ducklake-load")
 def ducklake_load_flow(lake_schema: str = LAKE_SCHEMA) -> None:
-    """MERGE every entity's raw data into the DuckLake catalog.
+    """Upsert every entity's raw data into the DuckLake catalog.
 
     Tasks are independent (distinct lake tables); order is unconstrained.
     SRA loaders are high-water-mark incremental; the rest are full-snapshot

@@ -140,7 +140,7 @@ def get_duckdb_connection(database: str = ":memory:") -> duckdb.DuckDBPyConnecti
     con.execute("SET http_retry_backoff = 2.0;")
     con.execute("SET http_keep_alive = true;")
 
-    account_id = s.s3_endpoint.replace("https://", "").split(".")[0]
+    account_id = (urlparse(s.s3_endpoint).netloc or s.s3_endpoint).split(".")[0]
     sql = f"""
     CREATE OR REPLACE SECRET r2 (
         TYPE r2,
@@ -232,7 +232,7 @@ def _lake_settings() -> LakeSettings:
     if not s.ducklake_uri:
         raise RuntimeError("DUCKLAKE_URI is not set")
     pg = _parse_libpq(s.ducklake_uri)  # host/dbname/user[/password/port]
-    account_id = s.s3_endpoint.replace("https://", "").split(".")[0]
+    account_id = (urlparse(s.s3_endpoint).netloc or s.s3_endpoint).split(".")[0]
     return LakeSettings(
         lake_backend="postgres",
         cred_source="env",

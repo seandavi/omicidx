@@ -5,7 +5,8 @@ source, e.g. sra_study/sample/experiment/run all come from `sra`). Registered
 under producer `omicidx` at the top of `ducklake_load_flow` via
 `ops.register_sources`, which is idempotent and self-healing.
 
-All omicidx sources land in the `omicidx` lake schema. Only `sra` is incremental
+Sources default to the `omicidx` lake schema; every loader accepts a `lake_schema`
+override (e.g. `omicidx_dev`) for validation. Only `sra` is incremental
 (high-water by raw `date` partition); the rest are full external dumps whose
 `upsert` still writes delta snapshots.
 """

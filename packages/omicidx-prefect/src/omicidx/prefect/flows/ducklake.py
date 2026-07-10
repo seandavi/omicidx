@@ -82,9 +82,9 @@ def replace_to_ducklake(
 ) -> int:
     """Full-replace lake.<schema>.<table> with a derived query result.
 
-    For derived tables that are cheaper to rebuild than to merge
-    (sra_accessions, geo_series_with_rnaseq_counts, the linkage table).
-    Stamped like `merge_to_ducklake` so snapshots stay self-documenting.
+    Dormant / transform-layer only (cdsci-lake ADR-0013): used by the parked
+    derived loaders in `flows/_parked/`, not the EL write path. Stamped via
+    `_stamped_txn` so snapshots stay self-documenting.
     """
     con.execute(f"CREATE SCHEMA IF NOT EXISTS lake.{schema}")
     message = commit_message or f"ducklake-load: replace {schema}.{table}"
@@ -123,7 +123,7 @@ def bioproject_to_ducklake(lake_schema: str = LAKE_SCHEMA) -> dict:
     """Upsert raw bioproject JSONL → lake.<lake_schema>.bioproject.
 
     Snapshot attribution is automatic (author `omicidx:bioproject`) via the
-    `ops.run` block; the MERGE gates on IS DISTINCT FROM, no `_row_hash`.
+    `ops.run` block; `upsert` gates on IS DISTINCT FROM, no `_row_hash`.
     """
     log = get_run_logger()
     raw = get_duckdb_path("bioproject", "raw", "data.jsonl.gz")

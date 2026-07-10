@@ -18,9 +18,12 @@ watermarks, a `prefect:ducklake-load` snapshot shape) parallel to cdsci-lake's
 omicidx depends on `cdsci-lake` (base install) and adopts its write path, per
 **cdsci-lake ADR-0011** (the full contract and its seven decisions). Concretely:
 
-- Delete `get_ducklake_connection`, `merge_to_ducklake`, `HighWaterMark`; use
-  `lake_connect` (env-cred mode), `ops.run`, and `upsert`. The EL write path is
-  **`upsert`-only** (cdsci-lake ADR-0013); `sra_accessions` becomes
+- Delete `merge_to_ducklake` + `HighWaterMark`; add `get_lake_connection`
+  (env-cred `lake_connect`) + `ops.run` + `upsert` as the write path.
+  `get_ducklake_connection` is **retained** (staged migration) for the
+  read-consumers (`parquet_export`, `postgres`) and the parked loaders until a
+  later pass converts them — it is simply no longer used for writes. The EL write
+  path is **`upsert`-only** (cdsci-lake ADR-0013); `sra_accessions` becomes
   `upsert`-on-`accession`.
 - Drop `_row_hash` from every projection and stored table.
 - **Park the derived loaders** — `publication_accession_linkage` and
