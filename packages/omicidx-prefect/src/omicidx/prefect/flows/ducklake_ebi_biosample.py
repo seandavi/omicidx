@@ -7,8 +7,8 @@ Follows the same pattern as bioproject_to_ducklake in ducklake.py:
   - QUALIFY dedup on accession (the EBI BioSample API returns one record per
     accession per day; dedup is defensive for the rare same-accession update
     that crosses a day boundary)
-  - md5(to_json({...payload...})) as _row_hash gates no-op UPDATEs
-  - merge_to_ducklake() wraps CREATE TABLE IF NOT EXISTS + MERGE + commit stamp
+  - `upsert` gates no-op UPDATEs via IS DISTINCT FROM (no `_row_hash` column)
+  - `ops.run` records the load + self-attributes the DuckLake snapshot
 
 Raw schema (from DESCRIBE read_ndjson_auto, union_by_name=true):
   accession VARCHAR            — natural key (EBI BioSample accession)
@@ -36,14 +36,13 @@ Excluded from projection:
   structuredData — deeply nested AMR/assay content, very sparse
 """
 
-from omicidx.prefect.config import get_duckdb_path, get_ducklake_connection
-from omicidx.prefect.flows.ducklake import (
-    LAKE_SCHEMA,
-    _commit_extra,
-    merge_to_ducklake,
-)
+from cdsci.lake import ops
+from cdsci.lake.connect import upsert
+from omicidx.prefect.config import get_duckdb_path, get_lake_connection
+from omicidx.prefect.flows.ducklake import LAKE_SCHEMA
 
 from prefect import get_run_logger, task
+from prefect.runtime import flow_run
 
 # ---------------------------------------------------------------------------
 # Source SQL template — {path} is the only single-brace token; all struct
@@ -74,26 +73,6 @@ SELECT * EXCLUDE (rn) FROM (
         organization,
         contact,
         certificates,
-        md5(to_json({{
-            'name':                     trim(name),
-            'domain':                   trim(domain),
-            'status':                   trim(status),
-            'release':                  trim(release),
-            'update':                   trim("update"),
-            'submitted':                trim(submitted),
-            'create':                   trim("create"),
-            'taxId':                    taxId,
-            'sraAccession':             trim(sraAccession),
-            'submittedVia':             trim(submittedVia),
-            'webinSubmissionAccountId': trim(webinSubmissionAccountId),
-            'characteristics':          characteristics,
-            'externalReferences':       externalReferences,
-            'relationships':            relationships,
-            'publications':             publications,
-            'organization':             organization,
-            'contact':                  contact,
-            'certificates':             certificates
-        }})) AS _row_hash,
         row_number() OVER (
             PARTITION BY trim(accession)
             ORDER BY trim("update") DESC NULLS LAST
@@ -110,20 +89,19 @@ SELECT * EXCLUDE (rn) FROM (
 
 @task(retries=1, retry_delay_seconds=60)
 def ebi_biosample_to_ducklake(lake_schema: str = LAKE_SCHEMA) -> dict:
-    """MERGE raw ebi_biosample NDJSON → lake.<lake_schema>.ebi_biosample."""
+    """Upsert raw ebi_biosample NDJSON → lake.<lake_schema>.ebi_biosample."""
     log = get_run_logger()
     raw = get_duckdb_path("ebi_biosample", "raw", "biosamples-*.ndjson.gz")
     source_sql = _EBI_BIOSAMPLE_SOURCE.format(path=raw)
-    with get_ducklake_connection() as con:
-        log.info(f"Merging {raw} → lake.{lake_schema}.ebi_biosample")
-        rows = merge_to_ducklake(
+    target = f"lake.{lake_schema}.ebi_biosample"
+    with get_lake_connection() as con:
+        log.info(f"Merging {raw} → {target}")
+        with ops.run(
             con,
-            schema=lake_schema,
-            table="ebi_biosample",
-            source_sql=source_sql,
-            key="accession",
-            commit_message=f"ducklake-load: ebi_biosample → {lake_schema}",
-            commit_extra_info=_commit_extra(entity="ebi_biosample", source=raw),
-        )
-    log.info(f"lake.{lake_schema}.ebi_biosample now holds {rows:,} rows")
-    return {"table": f"{lake_schema}.ebi_biosample", "row_count": rows}
+            source="ebi_biosample",
+            target=target,
+            extra={"prefect_run_id": flow_run.get_id()},
+        ) as r:
+            r.rows = upsert(con, target, source_sql, key="accession")
+        log.info(f"{target} now holds {r.rows:,} rows")
+        return r.summary()

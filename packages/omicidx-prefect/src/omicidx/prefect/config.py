@@ -16,6 +16,8 @@ from urllib.parse import urlparse
 
 import duckdb
 import sqlglot
+from cdsci.lake.config import Settings as LakeSettings
+from cdsci.lake.connect import lake_connect
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
@@ -138,7 +140,7 @@ def get_duckdb_connection(database: str = ":memory:") -> duckdb.DuckDBPyConnecti
     con.execute("SET http_retry_backoff = 2.0;")
     con.execute("SET http_keep_alive = true;")
 
-    account_id = s.s3_endpoint.replace("https://", "").split(".")[0]
+    account_id = (urlparse(s.s3_endpoint).netloc or s.s3_endpoint).split(".")[0]
     sql = f"""
     CREATE OR REPLACE SECRET r2 (
         TYPE r2,
@@ -212,6 +214,47 @@ def get_ducklake_connection() -> duckdb.DuckDBPyConnection:
         );""")
     con.execute("ATTACH 'ducklake:lake'")
     return con
+
+
+# ---------------------------------------------------------------------------
+# cdsci-lake write path (ADR-0005; replaces get_ducklake_connection in Pass B)
+# ---------------------------------------------------------------------------
+
+
+def _lake_settings() -> LakeSettings:
+    """Build a cdsci-lake Settings explicitly from omicidx's own Settings.
+
+    cdsci-lake's Settings reads a `CU_OPENALEX_`-prefixed env, which omicidx
+    does not set — so we construct it in code (postgres backend, env creds)
+    from DUCKLAKE_URI + the S3/R2 settings, never via cdsci-lake's env.
+    """
+    s = settings()
+    if not s.ducklake_uri:
+        raise RuntimeError("DUCKLAKE_URI is not set")
+    pg = _parse_libpq(s.ducklake_uri)  # host/dbname/user[/password/port]
+    account_id = (urlparse(s.s3_endpoint).netloc or s.s3_endpoint).split(".")[0]
+    return LakeSettings(
+        lake_backend="postgres",
+        cred_source="env",
+        r2_access_key_id=s.s3_access_key_id,
+        r2_secret_access_key=s.s3_secret_access_key,
+        r2_account_id=account_id,
+        lake_pg_host=pg["host"],
+        lake_pg_port=int(pg.get("port", "5432")),
+        lake_pg_dbname=pg["dbname"],
+        lake_pg_user=pg["user"],
+        lake_pg_password=pg.get("password", ""),
+    )
+
+
+def get_lake_connection() -> duckdb.DuckDBPyConnection:
+    """Write-mode connection to the shared lake via cdsci-lake.
+
+    Replaces `get_ducklake_connection` for converted loaders. Attaches the
+    lake as `lake` and the operational ledger as `ops` (run history +
+    watermarks).
+    """
+    return lake_connect(_lake_settings())
 
 
 # ---------------------------------------------------------------------------

@@ -1,6 +1,6 @@
 """Top-level DuckLake load flow.
 
-Assembles every per-entity loader into one flow that MERGEs raw data into
+Assembles every per-entity loader into one flow that upserts raw data into
 `lake.<schema>.*`. Sits between `raw-extract` and `postgres-load` in the
 daily pipeline (wired in P3). Shared helpers live in `ducklake.py`; each
 entity's source projection + task lives in its own `ducklake_<entity>.py`
@@ -10,6 +10,8 @@ Targets `LAKE_SCHEMA` (`omicidx`; pass an explicit `lake_schema` to target
 a dev schema for validation).
 """
 
+from cdsci.lake import ops
+from omicidx.prefect.config import get_lake_connection
 from omicidx.prefect.flows.ducklake import (
     LAKE_SCHEMA,
     bioproject_to_ducklake,
@@ -28,18 +30,25 @@ from omicidx.prefect.flows.ducklake_sra import (
     sra_sample_to_ducklake,
     sra_study_to_ducklake,
 )
+from omicidx.prefect.flows.ducklake_sra_accessions import sra_accessions_to_ducklake
+from omicidx.prefect.flows.sources import OMICIDX_SOURCES
 
 from prefect import flow
 
 
 @flow(name="ducklake-load")
 def ducklake_load_flow(lake_schema: str = LAKE_SCHEMA) -> None:
-    """MERGE every entity's raw data into the DuckLake catalog.
+    """Upsert every entity's raw data into the DuckLake catalog.
 
     Tasks are independent (distinct lake tables); order is unconstrained.
-    SRA loaders are high-water-mark incremental; the rest are
-    full-snapshot with the `_row_hash` gate. PubMed also applies deletes.
+    SRA loaders are high-water-mark incremental; the rest are full-snapshot
+    with the `upsert` IS DISTINCT FROM gate. PubMed also applies deletes.
     """
+    # Register omicidx's sources under producer `omicidx` (idempotent,
+    # self-healing; cdsci-lake ADR-0011 §4) before any loader runs.
+    with get_lake_connection() as con:
+        ops.register_sources(con, writer="omicidx", sources=OMICIDX_SOURCES)
+
     bioproject_to_ducklake(lake_schema=lake_schema)
     biosample_to_ducklake(lake_schema=lake_schema)
     geo_series_to_ducklake(lake_schema=lake_schema)
@@ -49,6 +58,7 @@ def ducklake_load_flow(lake_schema: str = LAKE_SCHEMA) -> None:
     sra_sample_to_ducklake(lake_schema=lake_schema)
     sra_experiment_to_ducklake(lake_schema=lake_schema)
     sra_run_to_ducklake(lake_schema=lake_schema)
+    sra_accessions_to_ducklake(lake_schema=lake_schema)
     pubmed_to_ducklake(lake_schema=lake_schema)
 
 

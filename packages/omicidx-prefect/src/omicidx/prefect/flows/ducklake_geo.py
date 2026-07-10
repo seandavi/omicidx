@@ -31,10 +31,13 @@ geo_samples_parquet, geo_platforms_parquet). Only the ``cdsci-lake`` bucket
 is written; raw inputs are read from PUBLISH_ROOT via ``get_duckdb_path``.
 """
 
-from omicidx.prefect.config import get_duckdb_path, get_ducklake_connection
-from omicidx.prefect.flows.ducklake import LAKE_SCHEMA, _commit_extra, merge_to_ducklake
+from cdsci.lake import ops
+from cdsci.lake.connect import upsert
+from omicidx.prefect.config import get_duckdb_path, get_lake_connection
+from omicidx.prefect.flows.ducklake import LAKE_SCHEMA
 
 from prefect import get_run_logger, task
+from prefect.runtime import flow_run
 
 # ---------------------------------------------------------------------------
 # geo_series  (source: raw hive-partitioned NDJSON via glob)
@@ -69,29 +72,6 @@ SELECT * EXCLUDE (rn) FROM (
         supplemental_files,
         trim(overall_design) AS overall_design,
         contributor,
-        md5(to_json({{
-            title: trim(title),
-            status: trim(status),
-            submission_date: submission_date,
-            last_update_date: last_update_date,
-            subseries: subseries,
-            bioprojects: bioprojects,
-            sra_studies: sra_studies,
-            contact: contact,
-            type: type,
-            summary: trim(summary),
-            relation: relation,
-            pubmed_id: pubmed_id,
-            sample_id: sample_id,
-            sample_taxid: sample_taxid,
-            sample_organism: sample_organism,
-            platform_id: platform_id,
-            platform_taxid: platform_taxid,
-            platform_organism: platform_organism,
-            supplemental_files: supplemental_files,
-            overall_design: trim(overall_design),
-            contributor: contributor
-        }})) AS _row_hash,
         row_number() OVER (
             PARTITION BY trim(accession) ORDER BY last_update_date DESC NULLS LAST
         ) AS rn
@@ -135,30 +115,6 @@ SELECT * EXCLUDE (rn) FROM (
         supplemental_files,
         channels,
         contributor,
-        md5(to_json({{
-            title: trim(title),
-            status: trim(status),
-            submission_date: submission_date,
-            last_update_date: last_update_date,
-            type: trim(type),
-            anchor: trim(anchor),
-            contact: contact,
-            description: trim(description),
-            biosample: biosample,
-            tag_count: tag_count,
-            tag_length: tag_length,
-            platform_id: trim(platform_id),
-            hyb_protocol: trim(hyb_protocol),
-            channel_count: channel_count,
-            scan_protocol: trim(scan_protocol),
-            data_row_count: data_row_count,
-            library_source: library_source,
-            sra_experiment: sra_experiment,
-            data_processing: trim(data_processing),
-            supplemental_files: supplemental_files,
-            channels: channels,
-            contributor: contributor
-        }})) AS _row_hash,
         row_number() OVER (
             PARTITION BY trim(accession) ORDER BY last_update_date DESC NULLS LAST
         ) AS rn
@@ -196,24 +152,6 @@ SELECT * EXCLUDE (rn) FROM (
         contributor,
         relation,
         trim(manufacture_protocol) AS manufacture_protocol,
-        md5(to_json({{
-            title: trim(title),
-            status: trim(status),
-            submission_date: submission_date,
-            last_update_date: last_update_date,
-            contact: contact,
-            organism: trim(organism),
-            sample_id: sample_id,
-            series_id: series_id,
-            technology: trim(technology),
-            description: trim(description),
-            distribution: trim(distribution),
-            manufacturer: manufacturer,
-            data_row_count: data_row_count,
-            contributor: contributor,
-            relation: relation,
-            manufacture_protocol: trim(manufacture_protocol)
-        }})) AS _row_hash,
         row_number() OVER (
             PARTITION BY trim(accession) ORDER BY last_update_date DESC NULLS LAST
         ) AS rn
@@ -238,22 +176,21 @@ def _merge_geo(
     source_template: str,
     lake_schema: str,
 ) -> dict:
-    """Run one GEO entity MERGE and return a summary dict."""
+    """Upsert one GEO entity into the lake and return a summary dict."""
     log = get_run_logger()
     source_sql = source_template.format(path=raw_path)
-    with get_ducklake_connection() as con:
-        log.info(f"Merging {raw_path} → lake.{lake_schema}.{table}")
-        rows = merge_to_ducklake(
+    target = f"lake.{lake_schema}.{table}"
+    with get_lake_connection() as con:
+        log.info(f"Merging {raw_path} → {target}")
+        with ops.run(
             con,
-            schema=lake_schema,
-            table=table,
-            source_sql=source_sql,
-            key="accession",
-            commit_message=f"ducklake-load: {entity} → {lake_schema}",
-            commit_extra_info=_commit_extra(entity=entity, source=raw_path),
-        )
-    log.info(f"lake.{lake_schema}.{table} now holds {rows:,} rows")
-    return {"table": f"{lake_schema}.{table}", "row_count": rows}
+            source="geo",
+            target=target,
+            extra={"prefect_run_id": flow_run.get_id()},
+        ) as r:
+            r.rows = upsert(con, target, source_sql, key="accession")
+        log.info(f"{target} now holds {r.rows:,} rows")
+        return r.summary()
 
 
 # ---------------------------------------------------------------------------

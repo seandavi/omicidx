@@ -1,4 +1,6 @@
-"""DuckLake derived table: publication ↔ accession linkage (ADR-0001).
+"""PARKED — transform-layer artifact deferred per cdsci-lake ADR-0013; not wired; resurrect when the transform layer lands.
+
+DuckLake derived table: publication ↔ accession linkage (ADR-0001).
 
 `publication_accession_linkage` inverts the publication cross-references
 that already live on the lake's dataset tables into a single, queryable
@@ -32,7 +34,6 @@ commit, so an auto-committed statement would lose the stamp.
 import duckdb
 from omicidx.prefect.config import get_ducklake_connection
 from omicidx.prefect.flows.ducklake import LAKE_SCHEMA, _commit_extra
-
 from prefect import get_run_logger, task
 
 # Value of bioproject.publications[].db that marks a real PMID. The other
