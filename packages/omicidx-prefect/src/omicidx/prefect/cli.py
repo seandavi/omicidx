@@ -126,10 +126,34 @@ def run_consolidate() -> None:
 @run.command("ducklake-load")
 @click.option("--lake-schema", default=None, help="Override target lake schema.")
 def run_ducklake_load(lake_schema: str | None) -> None:
+    """Daily incremental load: upsert raw -> lake (SRA advances by watermark).
+
+    For a full rebuild from raw instead, use `reproduce-from-raw`.
+    """
     from omicidx.prefect.flows.ducklake import LAKE_SCHEMA
     from omicidx.prefect.flows.ducklake_load import ducklake_load_flow
 
     ducklake_load_flow(lake_schema=lake_schema or LAKE_SCHEMA)
+
+
+@run.command("reproduce-from-raw")
+@click.option("--lake-schema", default=None, help="Override target lake schema.")
+def run_reproduce_from_raw(lake_schema: str | None) -> None:
+    """Rebuild the CURRENT lake tables by re-deriving them from retained raw.
+
+    This does NOT restore a prior day's data — it reconstructs today's state by
+    re-scanning every retained raw partition (SRA included). To read OLD state,
+    use snapshot time travel instead (DUCKLAKE.md "Reading history":
+    `... AT (VERSION => n)`).
+
+    Idempotent: an unchanged re-run writes zero new data files (proven in
+    tests/test_idempotency.py). Distinct from `ducklake-load`, the daily
+    incremental load.
+    """
+    from omicidx.prefect.flows.ducklake import LAKE_SCHEMA
+    from omicidx.prefect.flows.ducklake_load import ducklake_load_flow
+
+    ducklake_load_flow(lake_schema=lake_schema or LAKE_SCHEMA, force=True)
 
 
 @run.command("ducklake-maintenance")
@@ -165,6 +189,7 @@ def run_duckdb() -> None:
 @run.command("daily")
 @click.option("--force", is_flag=True)
 def run_daily(force: bool) -> None:
+    """Full daily pipeline: extract -> ducklake-load -> parquet-export -> postgres -> duckdb build."""
     from omicidx.prefect.flows.main import daily_pipeline_flow
 
     daily_pipeline_flow(force=force)

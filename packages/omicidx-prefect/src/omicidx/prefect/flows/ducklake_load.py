@@ -37,12 +37,18 @@ from prefect import flow
 
 
 @flow(name="ducklake-load")
-def ducklake_load_flow(lake_schema: str = LAKE_SCHEMA) -> None:
+def ducklake_load_flow(lake_schema: str = LAKE_SCHEMA, force: bool = False) -> None:
     """Upsert every entity's raw data into the DuckLake catalog.
 
     Tasks are independent (distinct lake tables); order is unconstrained.
     SRA loaders are high-water-mark incremental; the rest are full-snapshot
     with the `upsert` IS DISTINCT FROM gate. PubMed also applies deletes.
+
+    `force=True` is the **reproduce-from-raw** mode (spec §1, A3): it drops the
+    SRA high-water-mark filter so every retained raw partition is re-scanned,
+    reproducing lake state from raw. The full-snapshot loaders already read all
+    raw every run, so they need no flag. Reproducing is idempotent — an
+    unchanged re-run writes zero new data files (see `tests/test_idempotency.py`).
     """
     # Register omicidx's sources under producer `omicidx` (idempotent,
     # self-healing; cdsci-lake ADR-0011 §4) before any loader runs.
@@ -54,10 +60,10 @@ def ducklake_load_flow(lake_schema: str = LAKE_SCHEMA) -> None:
     geo_series_to_ducklake(lake_schema=lake_schema)
     geo_sample_to_ducklake(lake_schema=lake_schema)
     geo_platform_to_ducklake(lake_schema=lake_schema)
-    sra_study_to_ducklake(lake_schema=lake_schema)
-    sra_sample_to_ducklake(lake_schema=lake_schema)
-    sra_experiment_to_ducklake(lake_schema=lake_schema)
-    sra_run_to_ducklake(lake_schema=lake_schema)
+    sra_study_to_ducklake(lake_schema=lake_schema, force=force)
+    sra_sample_to_ducklake(lake_schema=lake_schema, force=force)
+    sra_experiment_to_ducklake(lake_schema=lake_schema, force=force)
+    sra_run_to_ducklake(lake_schema=lake_schema, force=force)
     sra_accessions_to_ducklake(lake_schema=lake_schema)
     pubmed_to_ducklake(lake_schema=lake_schema)
 

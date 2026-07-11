@@ -227,3 +227,105 @@ backstop"). RUN-SCOPE hard gate #3: extend-only; HALT if any path shortens.
   default/scheduled path never expires; the only shortening path is explicit
   operator opt-in via `retention_days`, which mirrors the pre-existing param.
   No R2/Worker/creds/push/SQLMesh touched.
+
+---
+
+## Work unit: A3 — round 1
+
+Spec: §1 ("Reproducible = re-running extraction + load from retained raw
+reproduces the lake tables (idempotent upsert makes re-runs no-ops). Acceptance:
+a smoke test proving a re-run writes zero new data files"); §4 A3. RUN-SCOPE
+hard gate #1: no R2 writes — the smoke test runs against a LOCAL ephemeral
+DuckLake, never cdsci-lake.
+
+### Changed
+- `flows/ducklake_load.py` `ducklake_load_flow` — added `force: bool = False`;
+  threads `force` to the four SRA loaders (the only high-water-mark incremental
+  ones). `force=True` is reproduce-from-raw: SRA drops its `date >= watermark`
+  filter and re-scans all retained raw; full-snapshot loaders already read all
+  raw each run. Docstring documents the mode + idempotency.
+- `cli.py` — new `omicidx-prefect run reproduce-from-raw [--lake-schema]`
+  entrypoint → `ducklake_load_flow(force=True)`. Named/discoverable, distinct
+  from the daily incremental `ducklake-load`.
+- `tests/test_idempotency.py` (new) — the acceptance smoke test. Attaches a
+  LOCAL file-catalog DuckLake (catalog file + local data dir, no R2), calls the
+  REAL cdsci-lake `upsert` (the primitive every loader uses):
+  - `test_rerun_writes_zero_new_data_files`: load a keyed fixture, re-run the
+    identical source, assert the on-disk parquet count is unchanged AND no new
+    snapshot — the spec's "zero new data files" acceptance.
+  - `test_real_change_commits_a_snapshot`: a changed row commits a new snapshot
+    (guards against a trivial "never writes"); the value updates. Uses snapshot
+    count, not file count, because a tiny table's UPDATE rewrites its single
+    file in place (verified empirically).
+
+### Design note (reproduce-from-raw entrypoint)
+- Reproduce-from-raw = `ducklake_load_flow(force=True)`, not a duplicate flow.
+  Full-snapshot loaders (geo/biosample/bioproject/pubmed/ebi) are already
+  reproduce-from-raw every run (no watermark). Only SRA is incremental, so
+  `force` (which the SRA loaders already accepted) is the whole delta. The CLI
+  command names the operation.
+- Idempotency is proven at the `upsert` layer (shared by every loader) rather
+  than by running the flow, because running the flow writes to cdsci-lake R2
+  (hard gate #1). The local DuckLake exercises the exact same `upsert` code path
+  and the same copy-on-write + IS DISTINCT FROM semantics.
+
+### Tests (smoke-test output)
+```
+tests/test_idempotency.py::test_rerun_writes_zero_new_data_files PASSED  [ 50%]
+tests/test_idempotency.py::test_real_change_commits_a_snapshot    PASSED [100%]
+2 passed
+```
+Full suite: `uv run pytest tests/` — 9 passed. `ruff check` — clean.
+
+### Persona findings — round 1
+- operability: PASS, no CRITICAL. Idempotency test real/non-circular (real
+  `upsert`, real on-disk file measurement); gate #1 respected (local DuckLake,
+  CLI command defined-not-executed); `force=True` genuinely drops the SRA
+  watermark filter; no daily-pipeline regression. ORDINARY: offline
+  `pytest.skip` could let a green run mask the acceptance test being skipped in
+  a network-less CI.
+- skeptic: PASS. All six primary claims grounded (real upsert same as prod path;
+  local-only no R2; asserts on-disk file equality; force drops watermark;
+  full-snapshot loaders need no force; CLI = `ducklake_load_flow(force=True)`).
+  Soft spot: the test comment's "rewrites its single file in place" is an
+  external-unverifiable mechanism claim (non-load-bearing; snapshot count is the
+  asserted signal).
+- ousterhout: PASS. `force`-flag reuse (not a duplicate flow) is correct/lazy;
+  CLI is a thin honest entrypoint. Real minor finding: the test docstring claims
+  the guarantee rests on "one property" of `upsert`, but it rests on TWO —
+  upsert idempotency (tested) + per-loader source-SELECT determinism (untested).
+- bioinformatician: FAIL. F1 (MAJOR): `reproduce-from-raw` maps to the "want my
+  old data back" instinct but rebuilds CURRENT state, and its `--help` had no
+  pointer to time travel. F2: `ducklake-load`/`daily` had no docstrings, so the
+  trio wasn't comparable via `--help`. F3: help leaked "high-water-marks
+  bypassed (force=True)" jargon. F4: test uses a toy source and never runs the
+  flow — worth a note so coverage isn't over-read.
+
+### Resolution (round-1 findings)
+- bioinfo F1 → FIXED: `reproduce-from-raw` docstring now says it rebuilds the
+  CURRENT state (not a prior day) and points to snapshot time travel
+  (`AT (VERSION => n)`, DUCKLAKE.md) for reading old state.
+- bioinfo F2 → FIXED: added docstrings to `run_ducklake_load` (daily
+  incremental; SRA by watermark) and `run_daily` (full pipeline).
+- bioinfo F3 → FIXED: operator help no longer mentions high-water-marks/force;
+  that detail stays in the flow docstring.
+- ousterhout two-property + bioinfo F4 + skeptic mechanism → FIXED in the test
+  module/change-test docstrings: scoped to "proves upsert idempotency (1);
+  assumes-but-does-not-test per-loader source determinism (2)"; noted it
+  exercises the shared primitive with a toy source, not the flow; softened the
+  file-in-place wording to the observed fact (file count didn't change locally).
+- operability offline-skip ORDINARY → ACKNOWLEDGED, no code change: the skip is
+  intentional portability; CI that must attest the acceptance should ensure the
+  ducklake extension is available (network) rather than rely on the skip.
+
+### Persona findings — round 2
+- bioinformatician: PASS. F1/F2/F4 resolved; F3 mostly resolved with one MINOR
+  jargon residue ("IS DISTINCT FROM gate + copy-on-write") in the CLI help →
+  FIXED (cut to "an unchanged re-run writes zero new data files (proven in
+  tests/test_idempotency.py)").
+- operability/skeptic/ousterhout: not re-dispatched — all PASSed round 1; their
+  nits were addressed with docstring-only softenings (no new failure surface).
+
+### Gate events
+- none. No R2 write (smoke test local-only; CLI command defined, never run);
+  no CLAUDE.md/Worker/creds/push/SQLMesh.
