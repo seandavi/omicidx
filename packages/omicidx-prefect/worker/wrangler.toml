@@ -1,0 +1,28 @@
+# Cloudflare Worker: anonymous, credential-free public read surface for the
+# frozen omicidx bundle (spec §2 endpoint 2 / Stage B3). Serves the
+# `data-omicidx` R2 bucket over plain HTTPS with range requests + CORS — the
+# load-bearing read path for anonymous DuckLake `ATTACH` of the file catalog.
+#
+# Deploy (needs `wrangler login`):
+#   cd worker && npm install && npx wrangler deploy
+#
+# Bind the custom domain (data-omicidx.cancerdatasci.org, matching
+# PUBLIC_PARQUET_HTTPS_BASE) in the dashboard or via a [[routes]] block once
+# the DNS record exists. The r2.dev public dev URL also works for verification.
+
+name = "data-omicidx"
+main = "src/index.ts"
+compatibility_date = "2025-03-14"
+
+[[r2_buckets]]
+binding = "DATA_BUCKET"
+bucket_name = "data-omicidx"
+
+[[analytics_engine_datasets]]
+binding = "USAGE"
+dataset = "data_omicidx_usage"
+
+# Custom domain (uncomment once the DNS record + zone are in place):
+# [[routes]]
+# pattern = "data-omicidx.cancerdatasci.org"
+# custom_domain = true
