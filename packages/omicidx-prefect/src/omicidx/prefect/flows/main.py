@@ -23,8 +23,8 @@ from omicidx.prefect.flows.ebi_biosample import ebi_biosample_extract_flow
 from omicidx.prefect.flows.geo import geo_extract_flow, geo_rna_seq_counts_flow
 from omicidx.prefect.flows.parquet_export import parquet_export_flow
 from omicidx.prefect.flows.postgres import postgres_load_flow
+from omicidx.prefect.flows.publish_bundle import publish_bundle_flow
 from omicidx.prefect.flows.pubmed import pubmed_extract_flow
-from omicidx.prefect.flows.sql import omicidx_duckdb_flow
 from omicidx.prefect.flows.sra import sra_extract_flow
 
 from prefect import flow
@@ -44,12 +44,20 @@ def raw_extract_flow(force: bool = False) -> None:
 
 @flow(name="daily-pipeline")
 def daily_pipeline_flow(force: bool = False) -> None:
-    """Daily pipeline: extract → ducklake-load → parquet-export → postgres → build."""
+    """Daily pipeline: extract → ducklake-load → parquet-export → postgres → publish.
+
+    ``parquet-export`` returns the publish date it stamped v{date}/ with;
+    ``publish-bundle`` is pinned to that same date so the frozen bundle
+    (file catalog + omicidx.duckdb + views.sql + manifest) references the
+    Parquet just written. ``publish-bundle`` builds omicidx.duckdb itself
+    (Stage B2: duckdb-build output redirected into the bundle), so the old
+    standalone ``omicidx-duckdb-build`` no longer runs inside the pipeline.
+    """
     raw_extract_flow(force=force)
     ducklake_load_flow()
-    parquet_export_flow()
+    date = parquet_export_flow()
     postgres_load_flow()
-    omicidx_duckdb_flow()
+    publish_bundle_flow(date=date)
 
 
 if __name__ == "__main__":

@@ -57,20 +57,38 @@ def _run_sql_file(name: str, con: duckdb.DuckDBPyConnection) -> None:
     log.info(f"Completed {name}")
 
 
-@task(retries=1, retry_delay_seconds=60)
-def build_omicidx_duckdb() -> dict:
-    """Build the omicidx.duckdb file and upload it to R2/S3."""
+def _view_files() -> list[str]:
+    """The 020+ view SQL files that define the published omicidx.duckdb."""
+    return [f for f in _list_sql_files() if f >= "020"]
+
+
+def views_sql() -> str:
+    """The co-published views.sql: 020+ view definitions, base URL substituted.
+
+    This is the exact SQL external DuckDB users `.read` against the public
+    Parquet — so it must carry concrete HTTPS URLs, which `_get_sql` supplies.
+    """
+    return "\n\n".join(_get_sql(name) for name in _view_files())
+
+
+def build_duckdb_local(db_file: str = DB_FILE) -> dict:
+    """Build omicidx.duckdb locally from the public Parquet; no upload.
+
+    Returns the local db path, per-table summaries, and the views.sql text.
+    Callers own the upload target (the daily flow uploads to PUBLISH_ROOT;
+    the bundle publisher uploads into the frozen bundle).
+    """
     log = get_run_logger()
-    db_path = Path(DB_FILE)
+    db_path = Path(db_file)
     if db_path.exists():
         db_path.unlink()
 
     summaries: list[dict] = []
-    with get_duckdb_connection(database=DB_FILE) as con:
-        view_files = [f for f in _list_sql_files() if f >= "020"]
-        log.info(f"Building {DB_FILE} from {len(view_files)} SQL files")
-
-        for name in view_files:
+    con = get_duckdb_connection(database=db_file)
+    try:
+        vfiles = _view_files()
+        log.info(f"Building {db_file} from {len(vfiles)} SQL files")
+        for name in vfiles:
             _run_sql_file(name, con)
 
         con.execute("DROP TABLE IF EXISTS db_creation_metadata")
@@ -84,40 +102,52 @@ def build_omicidx_duckdb() -> dict:
                 ).fetchall()
             except Exception:
                 continue
-
             for (table,) in tables:
                 qualified = f"{schema}.{table}" if schema != "main" else table
                 try:
-                    count = con.execute(f"SELECT COUNT(*) FROM {qualified}").fetchone()[
-                        0
-                    ]
+                    count = con.execute(
+                        f"SELECT COUNT(*) FROM {qualified}"
+                    ).fetchone()[0]
                 except Exception:
                     count = -1
                 summaries.append({"schema": schema, "table": table, "row_count": count})
+    finally:
+        con.close()
 
-        for s in summaries:
-            qualified = (
-                f"{s['schema']}.{s['table']}" if s["schema"] != "main" else s["table"]
-            )
-            log.info(f"  {qualified}: {s['row_count']:,} rows")
+    for s in summaries:
+        qualified = f"{s['schema']}.{s['table']}" if s["schema"] != "main" else s["table"]
+        log.info(f"  {qualified}: {s['row_count']:,} rows")
 
-        metadata = {
-            "created_at": datetime.now().isoformat(),
-            "tables": summaries,
-        }
-        metadata_path = db_path.with_suffix(".metadata.json")
-        metadata_path.write_text(json.dumps(metadata, indent=2))
+    return {
+        "db_path": db_path,
+        "summaries": summaries,
+        "views_sql": views_sql(),
+        "total_rows": sum(s["row_count"] for s in summaries if s["row_count"] > 0),
+    }
+
+
+@task(retries=1, retry_delay_seconds=60)
+def build_omicidx_duckdb() -> dict:
+    """Build the omicidx.duckdb file and upload it to R2/S3."""
+    log = get_run_logger()
+    built = build_duckdb_local()
+    db_path: Path = built["db_path"]
+
+    metadata = {
+        "created_at": datetime.now().isoformat(),
+        "tables": built["summaries"],
+    }
+    db_path.with_suffix(".metadata.json").write_text(json.dumps(metadata, indent=2))
 
     s3_path = get_upath("duckdb", "omicidx.duckdb")
     log.info(f"Uploading {db_path} to {s3_path}")
     with db_path.open("rb") as src, s3_path.open("wb") as dst:
         shutil.copyfileobj(src, dst)
 
-    total_rows = sum(s["row_count"] for s in summaries if s["row_count"] > 0)
     return {
         "sql_files": ", ".join(_list_sql_files()),
-        "table_count": len(summaries),
-        "total_rows": total_rows,
+        "table_count": len(built["summaries"]),
+        "total_rows": built["total_rows"],
         "s3_path": str(s3_path),
     }
 

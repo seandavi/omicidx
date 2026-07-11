@@ -152,9 +152,67 @@ insurance — touched only to rebuild the lake, never the normal history-query
 path.
 
 > This history lives in the **internal** lake only. The published external
-> bundle (`omicidx.duckdb` + Parquet) does **not** expose it yet — external
-> time travel is a later, gated stage. Don't infer a downloaded artifact can
-> query past state.
+> bundle (Stage B) ships **current-state only** at v1 — it exposes today's
+> snapshot, not history. External time travel (`AS OF`) is a later, gated stage
+> (B′). Don't infer a downloaded artifact can query past state yet.
+
+## External frozen bundle (Stage B)
+
+`publish-bundle` (`flows/publish_bundle.py`) writes the public daily artifact to
+the dedicated public bucket (`PUBLIC_PARQUET_ROOT`, e.g. `r2://data-omicidx`),
+served anonymously over HTTPS by the `worker/` Cloudflare Worker
+(`PUBLIC_PARQUET_HTTPS_BASE`). This is a **separate** bucket from the internal
+lake's `cdsci-lake` — the internal Postgres catalog is never exposed externally.
+
+Layout (per publish, `date` = UTC day):
+
+```
+<public root>/
+  v{date}/                     # immutable dated snapshot
+    *.parquet                  # flat per-table Parquet (parquet-export)
+    data/main/<table>/*.parquet# DuckLake-managed data files for the catalog
+    catalog.ducklake           # read-only FILE-based DuckLake catalog
+    omicidx.duckdb             # built from the flat Parquet (marts included)
+    views.sql                  # co-published view defs, concrete HTTPS URLs
+    manifest.json              # provenance attestation (below)
+  latest/                      # rolling; small files + flat Parquet only
+    catalog.ducklake  omicidx.duckdb  views.sql  manifest.json  *.parquet
+```
+
+`latest/` carries **no** `data/` dir: `latest/catalog.ducklake` stores its
+`data_path` as the absolute HTTPS URL of the newest `v{date}/data/`, so it
+references the dated data by URL. Dated folders older than
+`PUBLIC_BUNDLE_RETENTION_DAYS` (default 7; v1 bounded window) are pruned by
+`parquet-export`; today's is never pruned, so `latest/` always points at a live
+dated folder.
+
+### Anonymous read contract (the load-bearing assumption, verified)
+
+The file catalog is built with a **relative** `DATA_PATH 'data/'` (inlining
+disabled so real Parquet is written), then its stored `data_path` is rewritten
+to the absolute HTTPS URL `{https_base}/v{date}/data/`. A credential-free client
+resolves data files over HTTP range reads with no override:
+
+```sql
+INSTALL ducklake; LOAD ducklake; INSTALL httpfs; LOAD httpfs;
+ATTACH 'ducklake:https://<base>/latest/catalog.ducklake' AS omicidx (READ_ONLY);
+SELECT * FROM omicidx.geo_platforms LIMIT 5;
+```
+
+Sharp edges (learned): DuckLake resolves a **relative** `data_path` against the
+client CWD, not the catalog URL, so the absolute rewrite is required; a
+`DATA_PATH` override at ATTACH is rejected unless it matches the stored value;
+and R2 rejects buffered `.open("wb")` uploads with unequal multipart parts — use
+`fs.put_file`. Offline regression: `tests/test_bundle.py`.
+
+### Bundle manifest (provenance, spec §2a)
+
+`manifest.json` pins each publish to its provenance: `publish_date`,
+`published_at`, `dated_path`, `transform_sha` (repo git SHA), `lake_snapshot_id`
+(the internal snapshot the publish was cut from), `raw_partition_counts` (per
+source namespace), and per-table row counts. This is the primitive that makes a
+retained snapshot attestable — the gate B′ time travel builds on. v1 records
+partition *counts*; full enumeration (exact reproduce-from-raw) is a B′ upgrade.
 
 ### Reading history (time travel)
 
