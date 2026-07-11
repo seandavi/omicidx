@@ -11,12 +11,14 @@ import gzip
 import re
 import shutil
 import tempfile
+from functools import lru_cache
 
 import pyarrow as pa
 import pyarrow.parquet as pq
 from omicidx.parsers.sra.parser import sra_object_generator
 from omicidx.prefect.config import get_upath
 from omicidx.prefect.semaphore import SemaphoreStore
+from omicidx.prefect.source import run_extraction
 from upath import UPath
 
 from prefect import flow, get_run_logger, task
@@ -302,38 +304,55 @@ def _write_parquet_chunks(
     return total, part
 
 
-@task(retries=2, retry_delay_seconds=60, task_run_name="sra-extract-{entity}-{key}")
-def extract_mirror_file(
-    entity: str,
-    key: str,
-    url: str,
-    date_str: str,
-    stage: str,
-    force: bool = False,
-) -> dict:
-    """Extract a single SRA mirror file to parquet, gated by a semaphore."""
+@lru_cache(maxsize=1)
+def _mirror_index() -> dict[str, dict]:
+    """Composite-key -> mirror entry for the current batch (listed once/process).
+
+    The partition key is ``{entity}/{date}_{stage}`` — an opaque string to the
+    driver. The entry (url, entity, date, stage) is resolved back here so
+    ``extract(key, force)`` needs no URL argument. Threads (SRA's task runner)
+    share this cache, so the mirror is globbed once per run.
+    """
+    entries = [e for e in _get_mirror_entries() if e["in_current_batch"]]
+    return {f"{e['entity']}/{_partition_key(e)}": e for e in entries}
+
+
+@task(retries=2, retry_delay_seconds=60, task_run_name="sra-extract-{key}")
+def extract_sra_partition(key: str, force: bool = False) -> dict:
+    """Extract a single SRA mirror file to parquet, gated by a semaphore.
+
+    ``key`` is ``{entity}/{date}_{stage}``; the mirror entry (url, date, stage)
+    is resolved from the cached listing. Semaphores keep their per-entity
+    layout at ``_semaphores/sra/{entity}/{date}_{stage}.json``.
+    """
     log = get_run_logger()
+    entry = _mirror_index()[key]
+    entity = entry["entity"]
+    leaf = _partition_key(entry)
     sem = SemaphoreStore(f"sra/{entity}")
 
-    if not force and sem.exists(key):
-        log.info(f"sra/{entity}/{key}: semaphore exists, skipping")
-        return {"entity": entity, "key": key, "skipped": True}
+    if not force and sem.exists(leaf):
+        log.info(f"sra/{entity}/{leaf}: semaphore exists, skipping")
+        return {"key": key, "skipped": True}
 
+    date_str = entry["date"].strftime("%Y-%m-%d")
+    stage = "Full" if entry["is_full"] else "Incremental"
     out_dir = get_upath("sra", "raw", entity) / f"date={date_str}" / f"stage={stage}"
-    records, parts = _write_parquet_chunks(url=url, entity=entity, out_dir=out_dir)
-    log.info(f"{entity} {key}: wrote {records:,} records in {parts} parquet parts")
+    records, parts = _write_parquet_chunks(
+        url=entry["url"], entity=entity, out_dir=out_dir
+    )
+    log.info(f"{entity} {leaf}: wrote {records:,} records in {parts} parquet parts")
 
     sem.mark_done(
-        key,
+        leaf,
         metadata={
             "row_count": records,
             "parquet_parts": parts,
-            "source_url": url,
+            "source_url": entry["url"],
             "output_dir": str(out_dir),
         },
     )
     return {
-        "entity": entity,
         "key": key,
         "skipped": False,
         "row_count": records,
@@ -341,19 +360,31 @@ def extract_mirror_file(
     }
 
 
-@task
-def get_mirror_listing() -> list[dict]:
-    """Fetch the SRA mirror listing for the current batch."""
-    log = get_run_logger()
-    entries = _get_mirror_entries()
-    current = [e for e in entries if e["in_current_batch"]]
-    log.info(
-        f"Found {len(entries)} total mirror entries, {len(current)} in current batch"
-    )
-    for entity in ENTITIES:
-        n = sum(1 for e in current if e["entity"] == entity)
-        log.info(f"  {entity}: {n} files")
-    return current
+class SraSource:
+    """NCBI SRA mirror files, partitioned by (entity, date, stage).
+
+    Hides: the Mirroring listing crawl, the Full/Incremental batch cursor, the
+    per-entity PyArrow schemas, and the hive-partitioned parquet layout. Past
+    mirror files are immutable — a new batch gets new keys, so done == done.
+
+    Partition key is the composite ``{entity}/{date}_{stage}`` (this is what
+    shows up in the Prefect task-run name). Its semaphore, however, keeps the
+    per-entity split: to clear one by hand, run
+    ``omicidx-prefect semaphores clear sra/{entity} {date}_{stage}`` — i.e. the
+    text before the slash is the namespace suffix, the text after is the key.
+    """
+
+    name = "sra"
+    extract = staticmethod(extract_sra_partition)
+
+    def list_partitions(self, force: bool = False) -> list[str]:
+        index = _mirror_index()
+        if force:
+            return list(index)
+        done = {ent: set(SemaphoreStore(f"sra/{ent}").list_keys()) for ent in ENTITIES}
+        return [
+            k for k, e in index.items() if _partition_key(e) not in done[e["entity"]]
+        ]
 
 
 @flow(
@@ -367,34 +398,10 @@ def sra_extract_flow(force: bool = False) -> None:
     under `_semaphores/sra/{entity}/{date}_{stage}.json`. Pass force=True
     to re-extract every partition regardless.
     """
-    log = get_run_logger()
-    entries = get_mirror_listing()
-    # One LIST per entity namespace to drop already-done partitions, instead
-    # of one task run + HEAD per mirror file. No "always-latest": a new mirror
-    # batch gets new keys, so done == done.
-    done: dict[str, set[str]] = {}
-    if not force:
-        for entity in ENTITIES:
-            done[entity] = set(SemaphoreStore(f"sra/{entity}").list_keys())
-    futures = []
-    for entry in entries:
-        key = _partition_key(entry)
-        if not force and key in done.get(entry["entity"], set()):
-            continue
-        stage = "Full" if entry["is_full"] else "Incremental"
-        futures.append(
-            extract_mirror_file.submit(
-                entity=entry["entity"],
-                key=key,
-                url=entry["url"],
-                date_str=entry["date"].strftime("%Y-%m-%d"),
-                stage=stage,
-                force=force,
-            )
-        )
-    log.info(f"{len(futures)}/{len(entries)} mirror partitions pending extraction")
-    for fut in futures:
-        fut.result()
+    # Fresh mirror listing per run: the lru_cache dedups the glob within a run
+    # (threads share it) but must not persist across runs in a reused process.
+    _mirror_index.cache_clear()
+    run_extraction(SraSource(), force=force)
 
 
 if __name__ == "__main__":

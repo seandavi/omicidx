@@ -19,6 +19,7 @@ import orjson
 import tenacity
 from omicidx.prefect.config import get_duckdb_connection, get_duckdb_path, get_upath
 from omicidx.prefect.semaphore import SemaphoreStore
+from omicidx.prefect.source import run_extraction
 
 from prefect import flow, get_run_logger, task
 from prefect.task_runners import ThreadPoolTaskRunner
@@ -102,9 +103,17 @@ class _SampleFetcher:
     task_run_name="ebi-biosample-extract-{key}",
 )
 def extract_ebi_biosample(key: str, force: bool = False) -> dict:
+    """Extract one calendar-day partition of EBI BioSamples.
+
+    The current day always re-extracts (updates accrue through the day); a past
+    day with a semaphore is skipped unless ``force``.
+    """
     log = get_run_logger()
     sem = SemaphoreStore("ebi_biosample")
-    if not force and sem.exists(key):
+    # "Current day is volatile" is defined in two paired places: Ebi
+    # BiosampleSource.list_partitions keeps it pending (always=[current]); this
+    # guard makes it never skip on a stale semaphore. Change both together.
+    if not force and key != date.today().isoformat() and sem.exists(key):
         log.info(f"ebi_biosample/{key}: semaphore exists, skipping")
         return {"key": key, "skipped": True}
 
@@ -192,6 +201,35 @@ def consolidate_ebi_biosample_parquet() -> dict:
     return {"row_count": row_count, "output_path": output_path}
 
 
+class EbiBiosampleSource:
+    """EBI BioSamples, partitioned by calendar day (the ``Source`` protocol).
+
+    Hides: the cursor-paged BioSamples API, characteristics flattening, the
+    per-day NDJSON layout, and the "current day is never done" cursor.
+    """
+
+    name = "ebi_biosample"
+    extract = staticmethod(extract_ebi_biosample)
+
+    def __init__(
+        self,
+        start_day: str = "2021-01-01",
+        end_day: str | None = None,
+        rerun_current_day: bool = True,
+    ) -> None:
+        self.start_day = start_day
+        self.end_day = end_day
+        self.rerun_current_day = rerun_current_day
+
+    def list_partitions(self, force: bool = False) -> list[str]:
+        days = _enumerate_days(start=self.start_day, end=self.end_day)
+        current = date.today().isoformat()
+        always = [current] if self.rerun_current_day else []
+        return SemaphoreStore("ebi_biosample").pending_keys(
+            days, always=always, force=force
+        )
+
+
 @flow(
     name="ebi-biosample-extract",
     task_runner=ThreadPoolTaskRunner(max_workers=4),
@@ -203,22 +241,14 @@ def ebi_biosample_extract_flow(
     force: bool = False,
     consolidate: bool = True,
 ) -> None:
-    days = _enumerate_days(start=start_day, end=end_day)
-    current_key = date.today().isoformat()
-    sem = SemaphoreStore("ebi_biosample")
-    # Single LIST to skip already-done days, instead of one task run +
-    # HEAD per day. The current day always re-runs (it accrues during the
-    # day) when rerun_current_day is set.
-    always = [current_key] if rerun_current_day else []
-    todo = sem.pending_keys(days, always=always, force=force)
-    log = get_run_logger()
-    log.info(f"{len(todo)}/{len(days)} day partitions pending extraction")
-    futures = []
-    for key in todo:
-        force_this = force or (rerun_current_day and key == current_key)
-        futures.append(extract_ebi_biosample.submit(key=key, force=force_this))
-    for fut in futures:
-        fut.result()
+    run_extraction(
+        EbiBiosampleSource(
+            start_day=start_day,
+            end_day=end_day,
+            rerun_current_day=rerun_current_day,
+        ),
+        force=force,
+    )
 
     if consolidate:
         consolidate_ebi_biosample_parquet()

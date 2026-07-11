@@ -17,6 +17,7 @@ import tenacity
 from omicidx.parsers.biosample import BioProjectParser, BioSampleParser
 from omicidx.prefect.config import get_duckdb_connection, get_duckdb_path, get_upath
 from omicidx.prefect.semaphore import SemaphoreStore
+from omicidx.prefect.source import run_extraction
 from upath import UPath
 
 from prefect import flow, get_run_logger, task
@@ -97,11 +98,10 @@ def _extract_entity(
     }
 
 
-@task(retries=2, retry_delay_seconds=30)
-def extract_biosample(force: bool = False) -> dict:
+@task(retries=2, retry_delay_seconds=30, task_run_name="biosample-extract-{key}")
+def extract_biosample(key: str, force: bool = False) -> dict:
     log = get_run_logger()
     sem = SemaphoreStore("biosample")
-    key = date.today().isoformat()
     if not force and sem.exists(key):
         log.info(f"biosample/{key}: semaphore exists, skipping")
         return {"key": key, "skipped": True}
@@ -118,11 +118,10 @@ def extract_biosample(force: bool = False) -> dict:
     return {"key": key, "skipped": False, **meta}
 
 
-@task(retries=2, retry_delay_seconds=30)
-def extract_bioproject(force: bool = False) -> dict:
+@task(retries=2, retry_delay_seconds=30, task_run_name="bioproject-extract-{key}")
+def extract_bioproject(key: str, force: bool = False) -> dict:
     log = get_run_logger()
     sem = SemaphoreStore("bioproject")
-    key = date.today().isoformat()
     if not force and sem.exists(key):
         log.info(f"bioproject/{key}: semaphore exists, skipping")
         return {"key": key, "skipped": True}
@@ -137,6 +136,32 @@ def extract_bioproject(force: bool = False) -> dict:
     )
     sem.mark_done(key, metadata=meta)
     return {"key": key, "skipped": False, **meta}
+
+
+class _DailyDumpSource:
+    """A single full-dump source keyed by the run date (the ``Source`` protocol).
+
+    BioSample and BioProject are unpartitioned full dumps: one output file,
+    overwritten per run, gated by a per-day semaphore. The subclass sets
+    ``name`` and ``extract``.
+    """
+
+    name: str
+    extract: object
+
+    def list_partitions(self, force: bool = False) -> list[str]:
+        today = date.today().isoformat()
+        return SemaphoreStore(self.name).pending_keys([today], force=force)
+
+
+class BiosampleSource(_DailyDumpSource):
+    name = "biosample"
+    extract = staticmethod(extract_biosample)
+
+
+class BioprojectSource(_DailyDumpSource):
+    name = "bioproject"
+    extract = staticmethod(extract_bioproject)
 
 
 @task(retries=1, retry_delay_seconds=60)
@@ -175,12 +200,12 @@ def bioproject_to_parquet() -> dict:
 
 @flow(name="biosample-extract")
 def biosample_extract_flow(force: bool = False) -> None:
-    extract_biosample(force=force)
+    run_extraction(BiosampleSource(), force=force)
 
 
 @flow(name="bioproject-extract")
 def bioproject_extract_flow(force: bool = False) -> None:
-    extract_bioproject(force=force)
+    run_extraction(BioprojectSource(), force=force)
     bioproject_to_parquet()
 
 
