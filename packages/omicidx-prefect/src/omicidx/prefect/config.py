@@ -44,7 +44,7 @@ class Settings(BaseSettings):
     # public bucket, separate from PUBLISH_ROOT (raw) and cdsci-lake (lake).
     public_parquet_root: str | None = None  # e.g. r2://data-omicidx
     public_parquet_https_base: str | None = (
-        None  # e.g. https://data-omicidx.cancerdatasci.org
+        None  # e.g. https://data.omicidx.cancerdatasci.org
     )
     # v1 dated bundles are a bounded window (spec §2: "yesterday stays
     # readable"). Immutable v{date}/ folders older than this are pruned by

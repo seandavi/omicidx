@@ -4,11 +4,14 @@
 # load-bearing read path for anonymous DuckLake `ATTACH` of the file catalog.
 #
 # Deploy (needs `wrangler login`):
-#   cd worker && npm install && npx wrangler deploy
+#   cd worker && npm ci && npx wrangler deploy
 #
-# Bind the custom domain (data-omicidx.cancerdatasci.org, matching
-# PUBLIC_PARQUET_HTTPS_BASE) in the dashboard or via a [[routes]] block once
-# the DNS record exists. The r2.dev public dev URL also works for verification.
+# Serves at the custom domain data.omicidx.cancerdatasci.org (matching
+# PUBLIC_PARQUET_HTTPS_BASE) via the [[routes]] block below — a fresh subdomain,
+# so it does NOT collide with the legacy omicidx-data worker on
+# data-omicidx.cancerdatasci.org. custom_domain auto-creates the DNS record on
+# deploy when the cancerdatasci.org zone is Cloudflare-managed. The r2.dev
+# public dev URL also works for verification.
 
 name = "data-omicidx"
 main = "src/index.ts"
@@ -22,7 +25,6 @@ bucket_name = "data-omicidx"
 binding = "USAGE"
 dataset = "data_omicidx_usage"
 
-# Custom domain (uncomment once the DNS record + zone are in place):
-# [[routes]]
-# pattern = "data-omicidx.cancerdatasci.org"
-# custom_domain = true
+[[routes]]
+pattern = "data.omicidx.cancerdatasci.org"
+custom_domain = true

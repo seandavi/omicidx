@@ -169,7 +169,7 @@ POSTGRES_URI=postgresql://omicidx@host:5432/omicidx
 
 # Public Parquet export (reverse-ETL; ADR-0004)
 PUBLIC_PARQUET_ROOT=r2://data-omicidx                       # dedicated public bucket
-PUBLIC_PARQUET_HTTPS_BASE=https://data-omicidx.cancerdatasci.org  # base for views.sql URLs
+PUBLIC_PARQUET_HTTPS_BASE=https://data.omicidx.cancerdatasci.org  # base for views.sql URLs
 ```
 
 ## Tests
