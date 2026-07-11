@@ -329,3 +329,82 @@ Full suite: `uv run pytest tests/` — 9 passed. `ruff check` — clean.
 ### Gate events
 - none. No R2 write (smoke test local-only; CLI command defined, never run);
   no CLAUDE.md/Worker/creds/push/SQLMesh.
+
+---
+
+## Work unit: A4 — round 1
+
+Spec: §4 A4 ("Fix stale `DUCKLAKE.md` (`_row_hash`/MERGE → `upsert`/`IS DISTINCT
+FROM`)"). Also folds in the A1-deferred bioinfo F1 (per-source partition
+granularity table).
+
+### Changed (all in `packages/omicidx-prefect/DUCKLAKE.md`)
+- "Merge strategy" → "Upsert strategy": removed the `_row_hash = md5(to_json(
+  ...))` change-gate description and the `WHEN MATCHED AND tgt._row_hash <>
+  src._row_hash` shape; replaced with cdsci-lake `upsert`'s column-wise
+  `IS DISTINCT FROM` gate (no hash column), the actual MERGE shape it builds,
+  and `exclude_change_cols` for per-load stamps. Incremental/full-snapshot table
+  reworded (MERGE→upsert, hash-gated→IS-DISTINCT-FROM-gated).
+- Watermark storage line: was "stored as semaphore files under namespace
+  `ducklake/<entity>` (key `latest`)" — STALE/WRONG. Now: lake ops-ledger (`ops`
+  schema `watermark` table) via `ops.get_watermark`/`set_watermark`, keyed
+  source `sra`, name `<lake_schema>:<entity>`; backfill = `force=True`
+  (reproduce-from-raw). Verified against `ducklake_sra.py:155,177` +
+  `cdsci/lake/ops.py:429,438`.
+- "Commit metadata": was "Stamp every write" with a manual `BEGIN; set_commit_
+  message; MERGE; COMMIT`. Now: primary path attributes via `ops.run(...)`
+  automatically; manual `_stamped_txn` + `CREATE OR REPLACE TABLE` is the
+  transform-layer (`flows/_parked/`) path only.
+- SQL gotcha: "a `LIMIT` view is re-evaluated per MERGE pass" (MERGE-era) →
+  `upsert` materializes the source once, so the real risk is a `LIMIT` without
+  stable order returning different rows *across runs*, failing the re-run
+  idempotency check.
+- New "Raw extraction partitions" table (closes A1-deferred bioinfo F1):
+  per-source raw partition granularity + semaphore namespace/key, generalizing
+  the A1 SRA-clearability note.
+
+### Tests
+- Doc-only change; no code. `grep -i _row_hash/merge_to_ducklake/'stored as
+  semaphore'` on DUCKLAKE.md → clean (the one remaining `_row_hash` is the new
+  "there is **no** `_row_hash` column" statement).
+
+### Persona findings — round 1 (all four PASS)
+- skeptic: PASS — every new factual assertion grounded against the code (upsert
+  IS DISTINCT FROM gate + no `_row_hash`; `exclude_change_cols`; watermark in the
+  ops ledger; `ops.run` attribution; `_stamped_txn`/CREATE OR REPLACE for the
+  parked transform layer; the extraction-partition table). Nit: "`ops` schema" is
+  imprecise — `ops` is the attach alias; the qualified path is
+  `ops.lake_ops.watermark`.
+- ousterhout: PASS — doc presents `upsert` as the narrow interface with
+  complexity hidden; the raw-partition table is correctly framed as operator
+  reference, consistent with the A1 `Source` boundary; no internal
+  contradictions. Nit: the transform helpers live in `ducklake.py`, not
+  `_parked/` (parked loaders only call them).
+- operability: PASS — operationally accurate; backfill=`force=True` matches the
+  code; no-op-no-snapshot consistent with A3; no destructive instruction; no
+  stale 30-day/expiry text reintroduced (aligned with A2 unbounded default).
+- bioinformatician: PASS — coherent, current description. F1 (moderate): the
+  "namespace / key" separator collided with SRA's own slash. F2 (moderate):
+  BioSample/BioProject row read as one namespace+key, not two namespaces. F3
+  (minor): upsert/MERGE used interchangeably without stating equivalence. F4
+  (minor): transform path via `_parked/` not labelled dormant.
+
+### Resolution
+- bioinfo F1 + F2 → FIXED: partition table split into `Semaphore namespace` /
+  `Key` columns (no more " / " ambiguity), BioSample and BioProject as separate
+  rows, plus a worked `semaphores clear sra/study 2026-01-01_Full` example noting
+  SRA's embedded slash.
+- bioinfo F3 → FIXED: "`upsert` builds a DuckDB `MERGE` under the hood" added to
+  the intro.
+- bioinfo F4 + ousterhout nit → FIXED: transform layer labelled **dormant**;
+  helpers noted as "defined in `ducklake.py`" (parked loaders call them).
+- skeptic nit → FIXED: "`ops` schema `watermark` table" → `ops.lake_ops.watermark`
+  (verified: `_t()` builds `ops.lake_ops.<table>` in `cdsci/lake/ops.py:54-56`).
+
+### Dissents carried forward
+- none.
+
+### Gate events
+- none. DUCKLAKE.md is not CLAUDE.md; doc-only change, no
+  R2/Worker/creds/push/SQLMesh. (A1-deferred bioinfo F1 partition table now
+  landed here as promised.)

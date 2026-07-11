@@ -48,55 +48,95 @@ Notes:
   attach via the persisted secret (`ATTACH 'ducklake:lake'`) instead of
   rebuilding them.
 
-## Merge strategy (per entity)
+## Raw extraction partitions
 
-All loaders MERGE a **deduped, typed projection of raw** into the lake by
-natural key. There is no intermediate consolidated parquet — raw is the
-rebuildable backstop, lake snapshots provide history.
+Each source's raw extract is partitioned differently; the semaphore
+namespace/key mirrors the path layout (`omicidx-prefect semaphores list
+<ns>` / `... clear <ns> <key>`):
 
-- **Source** must yield **one row per key** (MERGE rejects multiple
+| Source | Raw partition | Semaphore namespace | Key | Notes |
+|---|---|---|---|---|
+| SRA | `(entity, date, stage)` mirror file | `sra/<entity>` | `<date>_<stage>` | namespace embeds a slash |
+| GEO | calendar month | `geo` | `<YYYY-MM>` | current month always re-runs |
+| BioSample | full dump per run | `biosample` | `<date>` | |
+| BioProject | full dump per run | `bioproject` | `<date>` | |
+| EBI BioSample | calendar day | `ebi_biosample` | `<YYYY-MM-DD>` | current day always re-runs |
+| PubMed | individual XML file | `pubmed` | `<file id>` | |
+
+Namespace and key are the two positional args to
+`omicidx-prefect semaphores clear`, e.g.
+`omicidx-prefect semaphores clear sra/study 2026-01-01_Full` — namespace
+`sra/study` (note the embedded slash), key `2026-01-01_Full`.
+
+The `Source` protocol (`omicidx/prefect/source.py`) hides this per-source
+scheme behind `list_partitions()` / `extract(key, force)`; the load side
+below reads whatever raw the source wrote.
+
+## Upsert strategy (per entity)
+
+All loaders **upsert** a **deduped, typed projection of raw** into the lake
+by natural key via cdsci-lake's `upsert(con, target, source_sql, key)`
+(ADR-0005; `upsert` builds a DuckDB `MERGE` under the hood). There is no
+intermediate consolidated parquet — raw is the rebuildable backstop, lake
+snapshots provide history.
+
+- **Source** must yield **one row per key** (the MERGE rejects multiple
   source matches): `QUALIFY row_number() OVER (PARTITION BY <key> ORDER
   BY <recency>) = 1`, null/empty keys filtered.
-- **Change gate:** every row carries `_row_hash = md5(to_json({...all
-  non-key payload columns...}))`. MERGE updates only when
-  `tgt._row_hash <> src._row_hash`, so unchanged rows never rewrite a
-  data file (DuckLake is copy-on-write) and a re-run produces no
-  snapshot.
-- **Shape:** `WHEN MATCHED AND tgt._row_hash <> src._row_hash THEN UPDATE
-  SET ...; WHEN NOT MATCHED THEN INSERT *`.
+- **Change gate:** `upsert` UPDATEs a matched row **only when a non-key
+  column actually differs** — `t.<col> IS DISTINCT FROM s.<col>` across every
+  payload column. There is **no `_row_hash` column**; the gate is computed
+  column-wise by `upsert`. Unchanged rows never rewrite a data file (DuckLake
+  is copy-on-write) and a re-run produces no snapshot.
+- **Shape (built by `upsert`):** `WHEN MATCHED AND (<any payload col> IS
+  DISTINCT FROM ...) THEN UPDATE SET *; WHEN NOT MATCHED THEN INSERT *`.
+- **Per-load stamp columns** (e.g. a `snapshot_version` that changes every
+  run) must be passed as `upsert(..., exclude_change_cols=[...])` so they are
+  set on update but ignored by the change gate — otherwise they mark every
+  row "changed" and force a full rewrite.
 - **Native nested types are preserved** in the lake (`struct[]`,
   `varchar[]`, `timestamp`, `date`) — do **not** flatten to JSON.
 
-Incremental vs full-snapshot — "merge on incrementals where possible":
+Incremental vs full-snapshot — "incremental where possible":
 
 | Source shape | Strategy |
 |---|---|
-| Raw hive-partitioned by date (SRA) | **High-water-mark**: scope source to `date >= <stored watermark>` (inclusive — boundary re-read is a hash-gated no-op), advance to `max(date)` after merge. |
-| Flat full dump (bioproject, biosample) | **Full-snapshot** MERGE; hash gate keeps writes incremental. |
+| Raw hive-partitioned by date (SRA) | **High-water-mark**: scope source to `date >= <stored watermark>` (inclusive — boundary re-read is an IS-DISTINCT-FROM-gated no-op), advance to `max(date)` after upsert. |
+| Flat full dump (bioproject, biosample) | **Full-snapshot** upsert; the change gate keeps writes incremental. |
 | Partitioned NDJSON, no clean date scope (GEO) | **Full-snapshot** from raw NDJSON globs. |
 | Flat files, cross-file key revisions (PubMed) | **Full-snapshot** by pmid; deletes (`delete IS TRUE`) removed via a separate labeled `DELETE`. |
 
-High-water marks are stored as semaphore files under namespace
-`ducklake/<entity>` (key `latest`) — backfill = clear the watermark and
-re-run with `force=True`.
+High-water marks live in the lake **operational ledger**
+(`ops.lake_ops.watermark`) via `ops.get_watermark` / `ops.set_watermark`,
+keyed source `sra`, name `<lake_schema>:<entity>` (e.g. `omicidx:sra_study`)
+— not semaphore files. Full re-derivation / backfill = run with `force=True`, which
+drops the watermark filter (see the `reproduce-from-raw` entrypoint).
 
 ## Commit metadata (self-documenting snapshots)
 
-Stamp every write so `SELECT * FROM lake.snapshots()` is an audit log:
+Every EL write runs inside an `ops.run(con, source=..., target=..., ...)`
+block (ADR-0009), which attributes the snapshot automatically (author,
+source, run id) so `SELECT * FROM lake.snapshots()` is an audit log. An
+idempotent `upsert` writes no snapshot, so the attribution simply doesn't
+land when nothing changed.
+
+The transform layer — the **dormant** full-replace loaders in `flows/_parked/`,
+which call `replace_to_ducklake` / `_stamped_txn` (defined in `ducklake.py`) —
+stamps manually instead, because it issues `CREATE OR REPLACE TABLE`, not an
+upsert:
 
 ```sql
 BEGIN TRANSACTION;
 CALL ducklake_set_commit_message('lake', <author>, <message>, extra_info := <json>);
-MERGE ... ;            -- or DELETE
+CREATE OR REPLACE TABLE ... ;     -- or DELETE
 COMMIT;
 ```
 
 - The stamp **must share the DML transaction** — DuckLake clears it on
-  commit, so auto-committed statements lose it.
+  commit, so an auto-committed statement loses it.
 - Conventions: `author = 'prefect:ducklake-load'`,
-  `message = 'ducklake-load: <entity> → <schema>'`,
-  `extra_info` = JSON `{prefect_run_id, entity, source, ...}`.
-- A no-op MERGE writes **no** snapshot, so the stamp simply doesn't land
+  `extra_info` = JSON `{prefect_run_id, ...}`.
+- A no-op write produces **no** snapshot, so the stamp simply doesn't land
   when nothing changed.
 
 ## Retention, time travel, and maintenance
@@ -165,7 +205,8 @@ CALL ducklake_expire_snapshots('lake', older_than => now() - INTERVAL 365 DAY);
   hive-partitioned NDJSON globs where early partitions are empty;
   otherwise DuckDB infers a single `json` column.
 - Validation that bounds a source with `LIMIT N` must add `ORDER BY
-  <key>` — a `LIMIT` view is re-evaluated per MERGE pass and would
-  otherwise return different rows, breaking idempotency checks.
+  <key>` — a `LIMIT` without a stable order returns different rows across
+  runs, so the re-run idempotency check (same input → no new snapshot)
+  would spuriously fail.
 - `flow_run.get_id()` returns `None` outside a flow context (valid JSON,
   just `null`).
