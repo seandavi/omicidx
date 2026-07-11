@@ -172,6 +172,15 @@ def run_parquet_export(lake_schema: str | None) -> None:
     parquet_export_flow(lake_schema=lake_schema or LAKE_SCHEMA)
 
 
+@run.command("publish-bundle")
+@click.option("--date", default=None, help="Bundle date (default: today UTC).")
+def run_publish_bundle(date: str | None) -> None:
+    """Build the external frozen bundle. Run after parquet-export."""
+    from omicidx.prefect.flows.publish_bundle import publish_bundle_flow
+
+    publish_bundle_flow(date=date)
+
+
 @run.command("postgres")
 def run_postgres() -> None:
     from omicidx.prefect.flows.postgres import postgres_load_flow
