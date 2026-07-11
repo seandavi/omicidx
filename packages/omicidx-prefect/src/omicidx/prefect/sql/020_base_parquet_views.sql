@@ -14,11 +14,11 @@ create or replace view src_geo_samples as (
 );
 
 -- TODO(derived): geo_series_with_rnaseq_counts is not yet exported by
--- parquet-export (orphaned ducklake loader). Lives under the public base at
--- geo/parquet/ (not latest/) until the derived loaders are wired.
+-- parquet-export (orphaned ducklake loader). Stubbed empty until the derived
+-- loaders are wired (Stage C); downstream `gse.has_geo_computed_rnaseq` is then
+-- always false. Restore the read_parquet('.../geo/parquet/...') form then.
 create or replace view src_geo_series_with_rnaseq_counts as (
-    select accession
-    from read_parquet('{{PUBLIC_PARQUET_BASE}}/geo/parquet/geo_series_with_rnaseq_counts.parquet')
+    select null::varchar as accession where false
 );
 
 create or replace view src_geo_platforms as (
@@ -53,11 +53,15 @@ create or replace view src_sra_runs as (
 );
 
 -- TODO(derived): sra_accessions is not yet exported by parquet-export
--- (orphaned ducklake loader). Lives under the public base at sra/parquet/
--- (not latest/) until the derived loaders are wired.
+-- (orphaned ducklake loader). Stubbed empty until the derived loaders are
+-- wired (Stage C); downstream stg_sra_runs.total_spots/total_bases are then
+-- null. Restore the read_parquet('.../sra/parquet/...') form then.
 create or replace view src_sra_accessions as (
-    select *
-    from read_parquet('{{PUBLIC_PARQUET_BASE}}/sra/parquet/sra_accessions.parquet')
+    select
+        null::varchar as accession,
+        null::bigint as spots,
+        null::bigint as bases
+    where false
 );
 
 -----

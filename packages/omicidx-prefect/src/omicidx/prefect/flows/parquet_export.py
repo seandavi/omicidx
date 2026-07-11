@@ -8,11 +8,12 @@ Two prefixes per run (spec §2, Stage B1):
 
 - immutable ``v{date}/<file>.parquet`` — the dated snapshot, written once,
   never overwritten. The reproducibility + provenance anchor.
-- rolling ``latest/<file>.parquet`` — a server-side copy of today's dated
-  files, at the stable URLs ``views.sql`` / ``duckdb-build`` read.
+- rolling ``latest/<file>.parquet`` — today's dated file re-written to the
+  stable URLs ``views.sql`` / ``duckdb-build`` read.
 
-The COPY reads the lake once (into ``v{date}/``); ``latest/`` is a same-bucket
-server-side object copy, not a second read of the lake. Dated folders older
+The COPY reads the lake once (into ``v{date}/``); ``latest/`` is written by
+re-reading that dated Parquet over httpfs, not a second read of the lake (and
+not an s3fs server-side copy — R2 flakes on multi-GB objects). Dated folders older
 than ``PUBLIC_BUNDLE_RETENTION_DAYS`` are pruned (v1 bounded window; B′ opens
 the dial for retained-snapshot time travel).
 
@@ -57,11 +58,13 @@ def export_table(
 ) -> dict:
     """COPY lake.<schema>.<lake_table> → v{date}/<filename>, mirror to latest/.
 
-    The lake is read once (COPY to the dated file); ``latest/`` is a
-    same-bucket server-side copy of that object.
+    The lake is read once (COPY to the dated file); ``latest/`` is written by
+    re-reading that dated Parquet over httpfs — not a second lake read, and not
+    an s3fs server-side copy (see the inline note).
     """
     log = get_run_logger()
     dated = get_public_parquet_path(f"v{date}", filename)
+    latest = get_public_parquet_path("latest", filename)
     with get_ducklake_connection() as con:
         log.info(f"Exporting lake.{lake_schema}.{lake_table} → {dated}")
         con.execute(
@@ -71,11 +74,14 @@ def export_table(
         row_count = con.execute(
             f"SELECT count(*) FROM read_parquet('{dated}')"
         ).fetchone()[0]
-
-    # Mirror to rolling latest/ (server-side copy; no second lake read).
-    src = get_public_upath(f"v{date}", filename)
-    dst = get_public_upath("latest", filename)
-    dst.fs.copy(src.path, dst.path)
+        # Mirror to rolling latest/ by re-reading the dated file over httpfs.
+        # ponytail: NOT an s3fs server-side copy — R2 times out / 502s copying
+        # multi-GB objects (biosamples is 7.8 GB). DuckDB's httpfs multipart
+        # write is the path that reliably lands the dated file, so reuse it.
+        con.execute(
+            f"COPY (SELECT * FROM read_parquet('{dated}')) "
+            f"TO '{latest}' (FORMAT PARQUET, COMPRESSION ZSTD)"
+        )
 
     log.info(f"Wrote {row_count:,} rows to {dated} and mirrored to latest/")
     return {

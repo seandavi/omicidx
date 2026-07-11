@@ -82,12 +82,16 @@ def storage_options() -> dict:
 
 def get_upath(*parts: str) -> UPath:
     """Build a UPath under the publish root (for fsspec/UPath operations)."""
-    return UPath(settings().publish_root, *parts, **storage_options())
+    # UPath has no r2 filesystem; construct with s3:// (same trick as the
+    # public helpers). PUBLISH_ROOT may be given as r2:// or s3://.
+    root_s3 = settings().publish_root.replace("r2://", "s3://", 1)
+    return UPath(root_s3, *parts, **storage_options())
 
 
 def get_duckdb_path(*parts: str) -> str:
     """Build an r2:// path for use in DuckDB SQL with the r2 secret."""
-    upath = UPath(settings().publish_root, *parts)
+    root_s3 = settings().publish_root.replace("r2://", "s3://", 1)
+    upath = UPath(root_s3, *parts)
     return str(upath).replace("s3://", "r2://", 1)
 
 
