@@ -8,7 +8,7 @@
 #
 # Schedules:
 #   - daily-pipeline:       02:00 UTC (full extract -> lake -> postgres -> build)
-#   - ducklake-maintenance: 04:00 UTC Sunday (expire snapshots + cleanup + compact)
+#   - ducklake-maintenance: 04:00 UTC Sunday (cleanup + compact; no expiry — retention unbounded)
 #   - pubmed-extract:       hourly (poll FTP for new PubMed files)
 #   - geo-extract:          06:00 UTC daily (re-fire current month)
 
@@ -52,8 +52,9 @@ deployments:
 
   - name: ducklake-maintenance
     description: |
-      Catalog maintenance: expire old snapshots, delete unreferenced
-      data files, and compact adjacent files. Weekly.
+      Catalog maintenance: delete unreferenced data files and compact
+      adjacent files. Weekly. Retention is unbounded by default — snapshots
+      are never expired unless retention_days is passed explicitly.
     entrypoint: src/omicidx/prefect/flows/ducklake_load.py:ducklake_maintenance_flow
     work_pool:
       name: default

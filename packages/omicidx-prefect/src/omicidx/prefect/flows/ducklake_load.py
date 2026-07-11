@@ -64,16 +64,20 @@ def ducklake_load_flow(lake_schema: str = LAKE_SCHEMA) -> None:
 
 @flow(name="ducklake-maintenance")
 def ducklake_maintenance_flow(
-    expire_older_than: str = "now() - INTERVAL 30 DAY",
+    retention_days: int | None = None,
     compact: bool = True,
 ) -> None:
-    """Scheduled (weekly) catalog maintenance: retention + compaction.
+    """Scheduled (weekly) catalog maintenance: cleanup + compaction.
 
-    Runs independently of ducklake-load. Reclaims R2 space pinned by
-    expired snapshots and coalesces the small parquet files that daily
-    incremental MERGEs accumulate.
+    Runs independently of ducklake-load. Retention is UNBOUNDED by default
+    (spec §1: the internal lake is the primary time machine; raw Parquet under
+    PUBLISH_ROOT is the re-derivation backstop). The weekly deployment passes no
+    parameters, so it coalesces small parquet files and cleans truly
+    unreferenced files without ever expiring snapshots. Pass an explicit
+    ``retention_days`` to deliberately re-enable bounded expiry — the only path
+    that removes history.
     """
-    ducklake_maintenance(expire_older_than=expire_older_than, compact=compact)
+    ducklake_maintenance(retention_days=retention_days, compact=compact)
 
 
 if __name__ == "__main__":

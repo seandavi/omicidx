@@ -99,21 +99,63 @@ COMMIT;
 - A no-op MERGE writes **no** snapshot, so the stamp simply doesn't land
   when nothing changed.
 
-## Maintenance (retention + compaction)
+## Retention, time travel, and maintenance
 
-`DROP TABLE` / rewrites only unlink in the catalog — reclaiming R2 needs
-both calls:
+**Retention is unbounded by default.** The internal lake is omicidx's
+primary time machine (deliverables spec §1): each upsert is copy-on-write —
+only changed rows are rewritten, so a snapshot stores just the delta — and
+for several sources the raw inputs are *larger* than the lake, so keeping
+every snapshot is cheap. Raw Parquet under `PUBLISH_ROOT` is the
+**re-derivation backstop**: re-deriving from the *retained* raw reproduces
+the lake (it is **not** a re-fetch from NCBI/EBI, which move on). It is
+insurance — touched only to rebuild the lake, never the normal history-query
+path.
+
+> This history lives in the **internal** lake only. The published external
+> bundle (`omicidx.duckdb` + Parquet) does **not** expose it yet — external
+> time travel is a later, gated stage. Don't infer a downloaded artifact can
+> query past state.
+
+### Reading history (time travel)
+
+`lake.snapshots()` is the version index. Pick a `snapshot_id` (that id is
+the number you pass as `VERSION`) or a timestamp, then query the table `AT`
+that version:
 
 ```sql
-CALL ducklake_expire_snapshots('lake', older_than => now() - INTERVAL 30 DAY);
-CALL ducklake_cleanup_old_files('lake', cleanup_all => true);
-CALL ducklake_merge_adjacent_files('lake');   -- compaction
+SELECT snapshot_id, snapshot_time FROM lake.snapshots() ORDER BY snapshot_id;   -- find the version
+SELECT * FROM lake.omicidx.sra_study AT (VERSION => 42);                         -- rows as of snapshot 42
+SELECT * FROM lake.omicidx.sra_study AT (TIMESTAMP => TIMESTAMP '2026-01-01');   -- rows as of a date
 ```
 
-- Retention: ~30 days for incremental tables; near-zero for
-  full-snapshot tables (no useful history between daily snapshots).
-- Run as a scheduled (weekly) maintenance flow. Any ad-hoc DROP must be
-  followed by expire + cleanup.
+To keep an old state, materialize the `AT` query, e.g. `CREATE TABLE
+sra_study_v42 AS SELECT * FROM lake.omicidx.sra_study AT (VERSION => 42);`.
+
+### Reclaiming space (weekly, safe)
+
+The weekly `ducklake-maintenance` flow reclaims R2 space *without* dropping
+history — it passes no parameters, so it never expires snapshots:
+
+```sql
+CALL ducklake_cleanup_old_files('lake', cleanup_all => true);  -- only files no snapshot references
+CALL ducklake_merge_adjacent_files('lake');                    -- compaction of small parquet files
+```
+
+`cleanup_old_files` never deletes a data file that a retained snapshot
+pins, so it is safe under unbounded retention.
+
+### Bounded expiry (opt-in only)
+
+`expire_snapshots` is the **only** call that removes history. The flow runs
+it **only** when `retention_days` is passed explicitly — never by default:
+
+```sql
+-- e.g. a dev lake that must not grow unbounded — ducklake_maintenance_flow(retention_days=365):
+CALL ducklake_expire_snapshots('lake', older_than => now() - INTERVAL 365 DAY);
+```
+
+- Any ad-hoc `DROP` must still be followed by `cleanup_old_files` to
+  reclaim R2 space.
 
 ## SQL gotchas
 

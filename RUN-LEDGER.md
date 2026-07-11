@@ -122,3 +122,108 @@ protocol; refactor the five flows behind it"); §5 (precedent-setting).
 ### Gate events
 - none (no R2 write, no CLAUDE.md, no Worker/creds, no push, no SQLMesh; the
   extract refactor is pure-local code).
+
+---
+
+## Work unit: A2 — round 1
+
+Spec: §1 ("Time travel = extended internal-lake snapshot retention"; raw is the
+re-derivation backstop); §4 A2 ("Extend internal-lake snapshot retention (config
++ ducklake-maintenance policy); document raw Parquet as the re-derivation
+backstop"). RUN-SCOPE hard gate #3: extend-only; HALT if any path shortens.
+
+### Changed
+- `flows/ducklake.py` `ducklake_maintenance` — default `expire_older_than`
+  `"now() - INTERVAL 30 DAY"` → `None`; the `ducklake_expire_snapshots` call is
+  now guarded by `if expire_older_than is not None`. Cleanup + compaction still
+  run (they never drop a snapshot-pinned file). Result dict + log gained
+  `expired_older_than`. Docstring rewritten: unbounded-by-default, raw backstop,
+  and an explicit "this task can only extend retention, never shorten it."
+- `flows/ducklake_load.py` `ducklake_maintenance_flow` — default
+  `expire_older_than` → `None`; docstring documents unbounded default + opt-in
+  expiry.
+- `DUCKLAKE.md` Maintenance section — rewritten to unbounded-default retention,
+  raw-as-backstop, cleanup/compaction safe-without-expiry, expiry opt-in only.
+
+### Gate verification (hard gate #3 — extend only)
+- The 30-day window lived ONLY in the two function defaults (grep across .py +
+  .yaml). The weekly `ducklake-maintenance` deployment (prefect.yaml:53) passes
+  NO `parameters:`, so it uses defaults. Changing defaults 30d → None means the
+  scheduled flow stops expiring → strictly extends. No caller passes a shorter
+  explicit value.
+- `expire_snapshots` is the only call that removes snapshots; it is now skipped
+  unless an explicit interval is passed. Default path expires nothing.
+- `cleanup_old_files` deletes only files unreferenced by ANY retained snapshot;
+  under unbounded retention old snapshots pin their files, so nothing retained is
+  dropped. `merge_adjacent_files` rewrites for the current snapshot; old files
+  stay pinned by history. No path drops retained data.
+- Deliberately did NOT add a new env knob (e.g. SNAPSHOT_RETENTION_DAYS) — that
+  would introduce a new env-driven path that COULD shorten. The existing
+  `expire_older_than` param (already present) remains the sole opt-in.
+
+### Tests
+- `uv run pytest tests/test_flows.py::test_flow_modules_import` — passes
+  (signature change imports clean). `ruff check` — clean. No test asserted the
+  30-day default.
+
+### Persona findings — round 1
+- operability: PASS. Hard gate respected (expiry unreachable by default; cleanup
+  + compaction history-preserving; no new knob). ORDINARY: stale prefect.yaml
+  prose still says "expire snapshots."
+- ousterhout: PASS. Coherent policy change; the `@flow` wrapper is a justified
+  deployment entrypoint. Nit: `expire_older_than: str` (raw SQL interval) is an
+  injection sink + dialect leak — a typed `days: int | None` would be narrower.
+- skeptic: FAIL. (F7) docstring "this task can only extend retention, never
+  shorten it" contradicts the guarded code (an explicit interval DOES shorten) —
+  conflates default path with task capability. (F3) prefect.yaml:11 + deployment
+  description still advertise "expire snapshots." (F4, note) cleanup/compaction
+  safety is a DuckLake-external contract.
+- bioinformatician: FAIL. Maintenance-safety story clear, but (F1/F3) "primary
+  time machine" with no retrieval recipe; (F2) "from-source re-run reproduces
+  lake state" misleads (implies re-fetch from NCBI); (F4) no internal-only
+  caveat; (F5) "copy-on-write" unglossed.
+
+### Resolution (round-1 findings)
+- ousterhout nit (typed retention) → ADOPTED: `expire_older_than: str` →
+  `retention_days: int | None`; expiry built as `now() - INTERVAL
+  {int(retention_days)} DAY`. Closes the injection sink and the dialect leak.
+- skeptic F7 → FIXED: docstring reworded to distinguish the default path
+  (extend-only) from the task's opt-in capability to shorten.
+- skeptic F3 + operability ORDINARY → FIXED: prefect.yaml:11 comment and the
+  deployment description rewritten (cleanup + compact; unbounded; no expiry
+  unless `retention_days` passed).
+- bioinfo F1/F3 → FIXED: added a "Reading history (time travel)" recipe to
+  DUCKLAKE.md (`lake.snapshots()` → `AT (VERSION => n)` / `AT (TIMESTAMP => ...)`
+  + a materialize example). F2 → FIXED (retained-raw wording). F4 → FIXED
+  (internal-only caveat blockquote). F5 → FIXED (copy-on-write glossed).
+- skeptic F4 (external DuckLake contract) → NOTED, not code-fixable; the A3
+  local smoke test empirically grounds the upsert-idempotency half of it.
+
+### Grounding note (skeptic round-2 request)
+- The DUCKLAKE.md `AT (VERSION => n)` and `AT (TIMESTAMP => TIMESTAMP '...')`
+  examples were verified against a LOCAL ephemeral DuckLake (no R2) before being
+  written: `AT (VERSION => old_snapshot)` returned the pre-change value and
+  `AT (TIMESTAMP => ...)` returned rows. `lake.snapshots()` and
+  `lake.omicidx.sra_study` are pre-existing real repo surfaces.
+
+### Persona findings — round 2 (re-review of the three that had blocking/nit items)
+- operability: PASS. Re-traced every caller under the typed `retention_days`;
+  default path still never expires; `int()` closes injection; no HALT.
+- skeptic: PASS. F7 + F3 resolved; new time-travel example internally consistent
+  (`snapshots()` + table name real); `AT` syntax external-unverifiable but
+  builder-verified locally (recorded above).
+- bioinformatician: PASS. Retrieval recipe + wording now serve the end-user.
+  Minor non-blocking nits (materialize line; snapshot_id==VERSION) → both added
+  to the doc.
+- ousterhout: not re-dispatched — its sole nit (typed retention param) was
+  adopted verbatim; round-1 PASS stands.
+
+### Dissents carried forward
+- none. All findings fixed or (skeptic F4) noted as an external-library contract
+  with the upsert half grounded by A3.
+
+### Gate events
+- none. Hard gate #3 (extend-only) verified by operability across both rounds:
+  default/scheduled path never expires; the only shortening path is explicit
+  operator opt-in via `retention_days`, which mirrors the pre-existing param.
+  No R2/Worker/creds/push/SQLMesh touched.
