@@ -46,6 +46,11 @@ class Settings(BaseSettings):
     public_parquet_https_base: str | None = (
         None  # e.g. https://data-omicidx.cancerdatasci.org
     )
+    # v1 dated bundles are a bounded window (spec §2: "yesterday stays
+    # readable"). Immutable v{date}/ folders older than this are pruned by
+    # parquet-export. B′ later opens this dial (or drops pruning) for
+    # retained-snapshot time travel.
+    public_bundle_retention_days: int = 7
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -84,6 +89,27 @@ def get_duckdb_path(*parts: str) -> str:
     """Build an r2:// path for use in DuckDB SQL with the r2 secret."""
     upath = UPath(settings().publish_root, *parts)
     return str(upath).replace("s3://", "r2://", 1)
+
+
+def publish_date() -> str:
+    """Today's publish date (UTC), the `v{date}` dated-folder stamp."""
+    from datetime import datetime, timezone
+
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+
+def get_public_upath(*parts: str) -> UPath:
+    """UPath under the public parquet root (fsspec ops: copy, listdir, rm).
+
+    Same account-scoped R2 credentials as the lake; used for server-side
+    object copy (v{date}/ → latest/) and dated-folder pruning, where DuckDB
+    COPY does not apply.
+    """
+    root = settings().public_parquet_root
+    if not root:
+        raise RuntimeError("PUBLIC_PARQUET_ROOT is not set")
+    root_s3 = root.replace("r2://", "s3://", 1)
+    return UPath(root_s3, *parts, **storage_options())
 
 
 def get_public_parquet_path(*parts: str) -> str:
