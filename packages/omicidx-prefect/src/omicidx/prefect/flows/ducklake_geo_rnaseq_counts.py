@@ -1,6 +1,4 @@
-"""PARKED — transform-layer artifact deferred per cdsci-lake ADR-0013; not wired; resurrect when the transform layer lands.
-
-DuckLake FULL-REPLACE derived loader for geo_series_with_rnaseq_counts.
+"""DuckLake FULL-REPLACE derived loader for geo_series_with_rnaseq_counts.
 
 A single-column accession list from the GEO RNA-seq counts parquet, always
 recomputed from scratch via `replace_to_ducklake` (CREATE OR REPLACE TABLE in

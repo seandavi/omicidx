@@ -23,6 +23,9 @@ from omicidx.prefect.flows.ducklake_geo import (
     geo_sample_to_ducklake,
     geo_series_to_ducklake,
 )
+from omicidx.prefect.flows.ducklake_geo_rnaseq_counts import (
+    geo_rnaseq_counts_to_ducklake,
+)
 from omicidx.prefect.flows.ducklake_pubmed import pubmed_to_ducklake
 from omicidx.prefect.flows.ducklake_sra import (
     sra_experiment_to_ducklake,
@@ -60,6 +63,7 @@ def ducklake_load_flow(lake_schema: str = LAKE_SCHEMA, force: bool = False) -> N
     geo_series_to_ducklake(lake_schema=lake_schema)
     geo_sample_to_ducklake(lake_schema=lake_schema)
     geo_platform_to_ducklake(lake_schema=lake_schema)
+    geo_rnaseq_counts_to_ducklake(lake_schema=lake_schema)
     sra_study_to_ducklake(lake_schema=lake_schema, force=force)
     sra_sample_to_ducklake(lake_schema=lake_schema, force=force)
     sra_experiment_to_ducklake(lake_schema=lake_schema, force=force)

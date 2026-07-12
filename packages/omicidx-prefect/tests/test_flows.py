@@ -19,6 +19,7 @@ FLOW_MODULES = [
     "omicidx.prefect.flows.ducklake_pubmed",
     "omicidx.prefect.flows.ducklake_ebi_biosample",
     "omicidx.prefect.flows.ducklake_sra_accessions",
+    "omicidx.prefect.flows.ducklake_geo_rnaseq_counts",
     "omicidx.prefect.flows.ducklake_load",
     "omicidx.prefect.flows.postgres",
     "omicidx.prefect.flows.sql",

@@ -44,10 +44,12 @@ EXPORTS: list[tuple[str, str]] = [
     ("geo_series", "geo_series.parquet"),
     ("geo_sample", "geo_samples.parquet"),
     ("geo_platform", "geo_platforms.parquet"),
+    ("geo_series_with_rnaseq_counts", "geo_series_with_rnaseq_counts.parquet"),
     ("sra_study", "sra_studies.parquet"),
     ("sra_sample", "sra_samples.parquet"),
     ("sra_experiment", "sra_experiments.parquet"),
     ("sra_run", "sra_runs.parquet"),
+    ("sra_accessions", "sra_accessions.parquet"),
     ("pubmed_article", "pubmed_articles.parquet"),
 ]
 
