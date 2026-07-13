@@ -1,6 +1,7 @@
 # DuckDB files (generated, not checked in)
 *.duckdb
 *.duckdb.wal
+omicidx.metadata.json
 
 # Secrets
 .env
