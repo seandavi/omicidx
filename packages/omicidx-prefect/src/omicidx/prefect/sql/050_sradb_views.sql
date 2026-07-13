@@ -1,21 +1,21 @@
 -- SRAdb-compatible views over OmicIDX parquet files
--- These views approximate the functionality of the original SRAmetadb.sqlite
--- using DuckDB as the engine and parquet files as the backend storage.
+-- These views approximate the original SRAmetadb.sqlite schema, MODERNIZED:
+-- legacy column names are kept where the data exists, columns that were always
+-- NULL in the modern scrape are dropped, and modern cross-reference columns
+-- (bioproject/geo/biosample links, library layout stats) are added.
+-- See docs/specs/omicidx-marts-adaptation.md for the full mapping.
 --
 -- Usage:
 --   1. First run 020_base_parquet_views.sql to create the src_* views
 --   2. Then run 030_staging_views.sql to create the stg_* views (deduplicated)
 --   3. Then run this file to create the sradb schema and views
---
--- The views are designed to be compatible with existing SRAdb queries where possible.
 
 CREATE SCHEMA IF NOT EXISTS sradb;
 
 USE sradb;
 
 -----
--- study table
--- Maps: stg_sra_studies -> sradb.study
+-- study table  (stg_sra_studies -> sradb.study)
 -----
 CREATE OR REPLACE VIEW study AS
 SELECT
@@ -29,158 +29,95 @@ SELECT
     center_name,
     bioproject_accession AS center_project_name,
     description AS study_description,
-    NULL AS related_studies,
-    NULL AS primary_study,
-    NULL AS sra_link,
-    NULL AS study_url_link,
-    NULL AS xref_link,
-    NULL AS study_entrez_link,
-    NULL AS ddbj_link,
-    NULL AS ena_link,
-    -- Convert attributes array to JSON string for compatibility
     CAST(attributes AS VARCHAR) AS study_attribute,
-    NULL AS submission_accession,
-    NULL AS sradb_updated
+    -- modern cross-references
+    bioproject_accession,
+    geo_accession,
+    pubmed_ids
 FROM main.stg_sra_studies;
 
 -----
--- sample table
--- Maps: stg_sra_samples -> sradb.sample
+-- sample table  (stg_sra_samples -> sradb.sample)
 -----
 CREATE OR REPLACE VIEW sample AS
 SELECT
     ROW_NUMBER() OVER (ORDER BY accession) AS sample_ID,
     alias AS sample_alias,
     accession AS sample_accession,
-    NULL AS broker_name,
-    NULL AS center_name,
     taxon_id,
     organism AS scientific_name,
-    NULL AS common_name,
-    NULL AS anonymized_name,
-    NULL AS individual_name,
     description,
-    NULL AS sra_link,
-    NULL AS sample_url_link,
-    NULL AS xref_link,
-    NULL AS sample_entrez_link,
-    NULL AS ddbj_link,
-    NULL AS ena_link,
     CAST(attributes AS VARCHAR) AS sample_attribute,
-    NULL AS submission_accession,
-    NULL AS sradb_updated
+    -- modern cross-references
+    biosample_accession
 FROM main.stg_sra_samples;
 
 -----
--- experiment table
--- Maps: stg_sra_experiments -> sradb.experiment
+-- experiment table  (stg_sra_experiments -> sradb.experiment)
 -----
 CREATE OR REPLACE VIEW experiment AS
 SELECT
     ROW_NUMBER() OVER (ORDER BY accession) AS experiment_ID,
-    NULL AS bamFile,
-    NULL AS fastqFTP,
     alias AS experiment_alias,
     accession AS experiment_accession,
-    NULL AS broker_name,
     center_name,
     title,
-    NULL AS study_name,
     study_accession,
     design AS design_description,
-    NULL AS sample_name,
     sample_accession,
-    NULL AS sample_member,
     library_name,
     library_strategy,
     library_source,
     library_selection,
     library_layout,
-    NULL AS targeted_loci,
     library_construction_protocol,
     spot_length,
-    NULL AS adapter_spec,
     CAST(reads AS VARCHAR) AS read_spec,
     platform,
     instrument_model,
-    NULL AS platform_parameters,
-    NULL AS sequence_space,
-    NULL AS base_caller,
-    NULL AS quality_scorer,
-    NULL AS number_of_levels,
-    NULL AS multiplier,
-    NULL AS qtype,
-    NULL AS sra_link,
-    NULL AS experiment_url_link,
-    NULL AS xref_link,
-    NULL AS experiment_entrez_link,
-    NULL AS ddbj_link,
-    NULL AS ena_link,
     CAST(attributes AS VARCHAR) AS experiment_attribute,
-    NULL AS submission_accession,
-    NULL AS sradb_updated
+    -- modern columns
+    library_layout_length,
+    library_layout_sdev,
+    nreads
 FROM main.stg_sra_experiments;
 
 -----
--- run table
--- Maps: stg_sra_runs -> sradb.run
+-- run table  (stg_sra_runs -> sradb.run)
+-- run_date/run_center are absent: the ducklake sra_run loader does not carry
+-- them (docs/specs/omicidx-marts-adaptation.md §Deltas).
 -----
 CREATE OR REPLACE VIEW run AS
 SELECT
     ROW_NUMBER() OVER (ORDER BY accession) AS run_ID,
-    NULL AS bamFile,
     alias AS run_alias,
     accession AS run_accession,
-    NULL AS broker_name,
-    NULL AS instrument_name,
-    NULL AS run_date,
-    NULL AS run_file,
-    NULL AS run_center,
-    NULL AS total_data_blocks,
     experiment_accession,
-    NULL AS experiment_name,
-    NULL AS sra_link,
-    NULL AS run_url_link,
-    NULL AS xref_link,
-    NULL AS run_entrez_link,
-    NULL AS ddbj_link,
-    NULL AS ena_link,
-    CAST(attributes AS VARCHAR) AS run_attribute,
-    NULL AS submission_accession,
-    NULL AS sradb_updated
+    total_spots,
+    total_bases,
+    CAST(attributes AS VARCHAR) AS run_attribute
 FROM main.stg_sra_runs;
 
 -----
 -- sra table (denormalized join of all entities)
--- This is the main table that SRAdb users typically query
--- Maps: stg_sra_runs + experiments + samples + studies -> sradb.sra
+-- The main table SRAdb users query. Modern reconstruction: legacy `sra` is
+-- undocumented, so this is the union of the normalized views above, keyed on
+-- the *_accession columns, with always-NULL legacy columns dropped and modern
+-- cross-references retained.
 -----
 CREATE OR REPLACE VIEW sra AS
 SELECT
     ROW_NUMBER() OVER (ORDER BY r.accession) AS sra_ID,
-    NULL AS SRR_bamFile,
-    NULL AS SRX_bamFile,
-    NULL AS SRX_fastqFTP,
     -- Run fields
-    ROW_NUMBER() OVER (ORDER BY r.accession) AS run_ID,
     r.alias AS run_alias,
     r.accession AS run_accession,
-    NULL AS run_date,
-    NULL AS updated_date,
     r.total_spots AS spots,
     r.total_bases AS bases,
-    NULL AS run_center,
-    NULL AS experiment_name,
-    NULL AS run_url_link,
-    NULL AS run_entrez_link,
     CAST(r.attributes AS VARCHAR) AS run_attribute,
     -- Experiment fields
-    ROW_NUMBER() OVER (ORDER BY e.accession) AS experiment_ID,
     e.alias AS experiment_alias,
     e.accession AS experiment_accession,
     e.title AS experiment_title,
-    NULL AS study_name,
-    NULL AS sample_name,
     e.design AS design_description,
     e.library_name,
     e.library_strategy,
@@ -188,55 +125,29 @@ SELECT
     e.library_selection,
     e.library_layout,
     e.library_construction_protocol,
-    NULL AS adapter_spec,
     CAST(e.reads AS VARCHAR) AS read_spec,
     e.platform,
     e.instrument_model,
-    NULL AS instrument_name,
-    NULL AS platform_parameters,
-    NULL AS sequence_space,
-    NULL AS base_caller,
-    NULL AS quality_scorer,
-    NULL AS number_of_levels,
-    NULL AS multiplier,
-    NULL AS qtype,
-    NULL AS experiment_url_link,
-    NULL AS experiment_entrez_link,
     CAST(e.attributes AS VARCHAR) AS experiment_attribute,
     -- Sample fields
-    ROW_NUMBER() OVER (ORDER BY sa.accession) AS sample_ID,
     sa.alias AS sample_alias,
     sa.accession AS sample_accession,
     sa.taxon_id,
-    NULL AS common_name,
-    NULL AS anonymized_name,
-    NULL AS individual_name,
+    sa.organism AS scientific_name,
     sa.description,
-    NULL AS sample_url_link,
-    NULL AS sample_entrez_link,
     CAST(sa.attributes AS VARCHAR) AS sample_attribute,
+    sa.biosample_accession,
     -- Study fields
-    ROW_NUMBER() OVER (ORDER BY st.accession) AS study_ID,
     st.alias AS study_alias,
     st.accession AS study_accession,
     st.title AS study_title,
     st.study_type,
     st.abstract AS study_abstract,
     st.bioproject_accession AS center_project_name,
+    st.bioproject_accession,
+    st.geo_accession,
     st.description AS study_description,
-    NULL AS study_url_link,
-    NULL AS study_entrez_link,
-    CAST(st.attributes AS VARCHAR) AS study_attribute,
-    NULL AS related_studies,
-    NULL AS primary_study,
-    -- Submission fields (not available in current data)
-    NULL AS submission_ID,
-    NULL AS submission_accession,
-    NULL AS submission_comment,
-    NULL AS submission_center,
-    NULL AS submission_lab,
-    NULL AS submission_date,
-    NULL AS sradb_updated
+    CAST(st.attributes AS VARCHAR) AS study_attribute
 FROM main.stg_sra_runs r
 LEFT JOIN main.stg_sra_experiments e ON r.experiment_accession = e.accession
 LEFT JOIN main.stg_sra_samples sa ON e.sample_accession = sa.accession
@@ -246,7 +157,7 @@ LEFT JOIN main.stg_sra_studies st ON e.study_accession = st.accession;
 -- Convenience views for common queries
 -----
 
--- View to get run info with study context (common use case)
+-- Run info with study context (common use case)
 CREATE OR REPLACE VIEW run_with_study AS
 SELECT
     r.accession AS run_accession,
@@ -271,29 +182,21 @@ LEFT JOIN main.stg_sra_experiments e ON r.experiment_accession = e.accession
 LEFT JOIN main.stg_sra_samples sa ON e.sample_accession = sa.accession
 LEFT JOIN main.stg_sra_studies st ON e.study_accession = st.accession;
 
--- View for RNA-seq experiments (common filter)
+-- RNA-seq experiments (common filter)
 CREATE OR REPLACE VIEW rnaseq_runs AS
-SELECT *
-FROM run_with_study
-WHERE library_strategy = 'RNA-Seq';
+SELECT * FROM run_with_study WHERE library_strategy = 'RNA-Seq';
 
--- View for WGS experiments
+-- WGS experiments
 CREATE OR REPLACE VIEW wgs_runs AS
-SELECT *
-FROM run_with_study
-WHERE library_strategy = 'WGS';
+SELECT * FROM run_with_study WHERE library_strategy = 'WGS';
 
--- View for human samples
+-- Human samples
 CREATE OR REPLACE VIEW human_runs AS
-SELECT *
-FROM run_with_study
-WHERE taxon_id = 9606;
+SELECT * FROM run_with_study WHERE taxon_id = 9606;
 
--- View for mouse samples
+-- Mouse samples
 CREATE OR REPLACE VIEW mouse_runs AS
-SELECT *
-FROM run_with_study
-WHERE taxon_id = 10090;
+SELECT * FROM run_with_study WHERE taxon_id = 10090;
 
 -- End of SRAdb-compatible views
 use main;

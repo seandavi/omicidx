@@ -34,7 +34,11 @@ SELECT
     contact."name"."first" || ' ' || contact."name"."last" AS contact,
     supplemental_files,
     data_row_count,
-    channel_count
+    channel_count,
+    -- modern cross-references
+    biosample,
+    sra_experiment,
+    library_source
 FROM src_geo_samples
 );
 
@@ -66,7 +70,12 @@ SELECT
     supplemental_files,
 
     -- Indicates if the GEO Series has associated ncbi-supplied RNA-Seq data
-    CASE WHEN h.accession IS NOT NULL THEN TRUE ELSE FALSE END AS has_geo_computed_rnaseq
+    CASE WHEN h.accession IS NOT NULL THEN TRUE ELSE FALSE END AS has_geo_computed_rnaseq,
+
+    -- modern cross-references
+    bioprojects,
+    sra_studies,
+    subseries
 FROM src_geo_series g
 LEFT JOIN has_geo_computed_rnaseq h
     ON g.accession = h.accession
