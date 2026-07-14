@@ -142,7 +142,7 @@ curl -s https://data.omicidx.cancerdatasci.org/latest/manifest.json
   "transform_sha": "13b9a955…",
   "lake_snapshot_id": 1780,
   "raw_partition_counts": { "sra/study": 70, "geo": 259, … },
-  "tables": [ { "schema": "main", "table": "src_biosamples", "row_count": 57877046 }, … ]
+  "tables": [ { "schema": "sradb", "table": "study", "row_count": 740807 }, … ]
 }
 ```
 

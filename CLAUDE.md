@@ -130,16 +130,17 @@ substrate. Partition state lives in **semaphore JSON files** in the storage
 bucket (not Dagster's event log). Pipeline:
 
 ```
-raw-extract → ducklake-load → parquet-export → postgres-load → duckdb-build
+raw-extract → ducklake-load → transform → parquet-export → postgres-load → duckdb-build
 ```
 
 | Stage | Module | What it does |
 |---|---|---|
 | `raw-extract` | `flows/{sra,geo,biosample,ebi_biosample,pubmed}.py` | NCBI/EBI → raw Parquet/NDJSON on R2 (`PUBLISH_ROOT`), semaphore-gated |
 | `ducklake-load` | `flows/ducklake*.py` | MERGE raw → `lake.omicidx.*` (hash-gated, copy-on-write; SRA high-water-mark incremental) |
-| `parquet-export` | `flows/parquet_export.py` | Reverse-ETL: COPY lake tables → public Parquet `r2://data-omicidx/latest/*.parquet` (ADR-0004) |
+| `transform` | `flows/transform.py` + `transform/` (SQLMesh) | `plan(prod)` materializes `src`→`stg`→`geometadb.*`/`sradb.*` marts as views in the lake |
+| `parquet-export` | `flows/parquet_export.py` | Reverse-ETL: COPY lake tables **and marts** → public Parquet `r2://data-omicidx/latest/*.parquet` + `latest/{sradb,geometadb}/*.parquet` (ADR-0004) |
 | `postgres-load` | `flows/postgres.py` | Reload API-serving Postgres tables from the lake (A/B-slot swap) |
-| `duckdb-build` | `flows/sql.py` + `sql/020–050` | Build `omicidx.duckdb` from the public Parquet via view SQL |
+| `duckdb-build` | `flows/sql.py` | **Thin**: generate `CREATE VIEW` per mart over the public mart Parquet (no re-derivation); marts-only |
 
 - Config: `config.py` (`Settings` + `get_ducklake_connection`, `get_public_parquet_path`, etc.). Key env: `PUBLISH_ROOT`, `DUCKLAKE_URI`, `DUCKLAKE_DATA_PATH`, `PUBLIC_PARQUET_ROOT`, `PUBLIC_PARQUET_HTTPS_BASE`, `POSTGRES_URI`.
 - Catalog topology + MERGE/maintenance conventions: `DUCKLAKE.md`. Public-serving contract: `docs/adrs/0004`.
