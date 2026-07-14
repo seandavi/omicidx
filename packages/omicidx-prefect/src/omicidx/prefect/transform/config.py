@@ -28,12 +28,14 @@ _account_id = (urlparse(_s.s3_endpoint).netloc or _s.s3_endpoint).split(".")[0]
 # password is inlined into the libpq DSN SQLMesh embeds in the ATTACH string
 # (local process only). DATA_PATH governs only first-time init; the catalog's
 # stored path governs existing tables (same note as config.get_ducklake_connection).
-_lake_dsn = "postgres:host={host} port={port} dbname={dbname} user={user} password={pw}".format(
-    host=_pg["host"],
-    port=_pg.get("port", "5432"),
-    dbname=_pg["dbname"],
-    user=_pg["user"],
-    pw=_pg.get("password", ""),
+_lake_dsn = (
+    "postgres:host={host} port={port} dbname={dbname} user={user} password={pw}".format(
+        host=_pg["host"],
+        port=_pg.get("port", "5432"),
+        dbname=_pg["dbname"],
+        user=_pg["user"],
+        pw=_pg.get("password", ""),
+    )
 )
 
 connection = DuckDBConnectionConfig(

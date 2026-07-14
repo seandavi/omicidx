@@ -35,13 +35,13 @@ import json
 import os
 import subprocess
 import tempfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import duckdb
 from omicidx.prefect.config import (
-    get_ducklake_connection,
     get_duckdb_connection,
+    get_ducklake_connection,
     get_public_parquet_path,
     get_public_upath,
     publish_date,
@@ -121,13 +121,12 @@ def build_file_catalog(date: str, tables: list[tuple[str, str]], workdir: Path) 
             "ATTACH 'ducklake:catalog.ducklake' AS pub "
             "(DATA_PATH 'data/', DATA_INLINING_ROW_LIMIT 0)"
         )
-        for lake_table, filename in tables:
+        for _lake_table, filename in tables:
             src = get_public_parquet_path(f"v{date}", filename)
             name = _public_table_name(filename)
             log.info(f"Catalog table {name} ← {src}")
             con.execute(
-                f'CREATE TABLE pub."{name}" AS '
-                f"SELECT * FROM read_parquet('{src}')"
+                f"CREATE TABLE pub.\"{name}\" AS SELECT * FROM read_parquet('{src}')"
             )
         con.execute("USE memory")
         con.execute("DETACH pub")
@@ -149,7 +148,7 @@ def build_manifest(date: str, summaries: list[dict]) -> dict:
     raw_partitions = {ns: len(SemaphoreStore(ns).list_keys()) for ns in RAW_NAMESPACES}
     return {
         "publish_date": date,
-        "published_at": datetime.now(timezone.utc).isoformat(),
+        "published_at": datetime.now(UTC).isoformat(),
         "dated_path": f"v{date}/",
         "transform_sha": _git_sha(),
         "lake_snapshot_id": _lake_snapshot_id(),
@@ -168,8 +167,9 @@ def build_manifest(date: str, summaries: list[dict]) -> dict:
 
 
 @task
-def upload_bundle(date: str, workdir: Path, manifest: dict, db_path: Path,
-                  views_sql: str) -> dict:
+def upload_bundle(
+    date: str, workdir: Path, manifest: dict, db_path: Path, views_sql: str
+) -> dict:
     """Upload the assembled bundle to v{date}/ and mirror small files to latest/.
 
     The DuckLake ``data/`` dir lives only under the immutable ``v{date}/``; the

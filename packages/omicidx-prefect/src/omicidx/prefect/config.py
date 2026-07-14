@@ -11,6 +11,7 @@ import os
 import re
 import tempfile
 from contextlib import contextmanager
+from datetime import UTC
 from functools import lru_cache
 from urllib.parse import urlparse
 
@@ -97,9 +98,9 @@ def get_duckdb_path(*parts: str) -> str:
 
 def publish_date() -> str:
     """Today's publish date (UTC), the `v{date}` dated-folder stamp."""
-    from datetime import datetime, timezone
+    from datetime import datetime
 
-    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    return datetime.now(UTC).strftime("%Y-%m-%d")
 
 
 def get_public_upath(*parts: str) -> UPath:

@@ -51,7 +51,9 @@ def _snapshot_count(con) -> int:
 
 # A tiny stand-in for a loader's deduped/typed raw projection: keyed by
 # `accession`, exactly like every omicidx upsert target.
-_SOURCE = "SELECT * FROM (VALUES ('SRR1','a'),('SRR2','b'),('SRR3','c')) AS t(accession, val)"
+_SOURCE = (
+    "SELECT * FROM (VALUES ('SRR1','a'),('SRR2','b'),('SRR3','c')) AS t(accession, val)"
+)
 
 
 def test_rerun_writes_zero_new_data_files(tmp_path):
@@ -69,9 +71,7 @@ def test_rerun_writes_zero_new_data_files(tmp_path):
     assert _data_files(data) == files_first, (
         "idempotent re-run must write ZERO new data files"
     )
-    assert _snapshot_count(con) == snaps_first, (
-        "idempotent re-run must add no snapshot"
-    )
+    assert _snapshot_count(con) == snaps_first, "idempotent re-run must add no snapshot"
     assert con.execute("SELECT count(*) FROM lake.omicidx.thing").fetchone()[0] == 3
 
 
@@ -96,6 +96,8 @@ def test_real_change_commits_a_snapshot(tmp_path):
         "a changed row must commit a new snapshot (the IS DISTINCT FROM gate fires)"
     )
     assert (
-        con.execute("SELECT val FROM lake.omicidx.thing WHERE accession = 'SRR1'").fetchone()[0]
+        con.execute(
+            "SELECT val FROM lake.omicidx.thing WHERE accession = 'SRR1'"
+        ).fetchone()[0]
         == "CHANGED"
     )

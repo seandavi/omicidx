@@ -22,7 +22,7 @@ COPY into a *different* bucket than the lake's ``cdsci-lake`` reuses it with no
 extra credentials.
 """
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from omicidx.prefect.config import (
     get_ducklake_connection,
@@ -128,7 +128,7 @@ def prune_dated_folders(keep_date: str) -> list[str]:
     log = get_run_logger()
     days = settings().public_bundle_retention_days
     cutoff = (
-        datetime.strptime(keep_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        datetime.strptime(keep_date, "%Y-%m-%d").replace(tzinfo=UTC)
         - timedelta(days=days)
     ).date()
 
@@ -151,9 +151,7 @@ def prune_dated_folders(keep_date: str) -> list[str]:
 
 
 @flow(name="parquet-export")
-def parquet_export_flow(
-    date: str | None = None, lake_schema: str = LAKE_SCHEMA
-) -> str:
+def parquet_export_flow(date: str | None = None, lake_schema: str = LAKE_SCHEMA) -> str:
     """Export every core lake table to v{date}/ + latest/, prune old folders.
 
     Sits between ``ducklake-load`` and ``publish-bundle`` in the daily

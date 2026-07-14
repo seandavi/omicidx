@@ -23,7 +23,11 @@ import duckdb
 
 MODELS_DIR = (
     Path(__file__).parent.parent
-    / "src" / "omicidx" / "prefect" / "transform" / "models"
+    / "src"
+    / "omicidx"
+    / "prefect"
+    / "transform"
+    / "models"
 )
 
 # Contact struct shared by all GEO entities (superset of fields the views read).
@@ -86,76 +90,207 @@ _UPSTREAM_DDL = [
 
 EXPECTED = {
     "sradb.study": {
-        "study_ID", "study_alias", "study_accession", "study_title",
-        "study_type", "study_abstract", "broker_name", "center_name",
-        "center_project_name", "study_description", "study_attribute",
-        "bioproject_accession", "geo_accession", "pubmed_ids",
+        "study_ID",
+        "study_alias",
+        "study_accession",
+        "study_title",
+        "study_type",
+        "study_abstract",
+        "broker_name",
+        "center_name",
+        "center_project_name",
+        "study_description",
+        "study_attribute",
+        "bioproject_accession",
+        "geo_accession",
+        "pubmed_ids",
     },
     "sradb.sample": {
-        "sample_ID", "sample_alias", "sample_accession", "taxon_id",
-        "scientific_name", "description", "sample_attribute",
+        "sample_ID",
+        "sample_alias",
+        "sample_accession",
+        "taxon_id",
+        "scientific_name",
+        "description",
+        "sample_attribute",
         "biosample_accession",
     },
     "sradb.experiment": {
-        "experiment_ID", "experiment_alias", "experiment_accession",
-        "center_name", "title", "study_accession", "design_description",
-        "sample_accession", "library_name", "library_strategy",
-        "library_source", "library_selection", "library_layout",
-        "library_construction_protocol", "spot_length", "read_spec", "platform",
-        "instrument_model", "experiment_attribute", "library_layout_length",
-        "library_layout_sdev", "nreads",
+        "experiment_ID",
+        "experiment_alias",
+        "experiment_accession",
+        "center_name",
+        "title",
+        "study_accession",
+        "design_description",
+        "sample_accession",
+        "library_name",
+        "library_strategy",
+        "library_source",
+        "library_selection",
+        "library_layout",
+        "library_construction_protocol",
+        "spot_length",
+        "read_spec",
+        "platform",
+        "instrument_model",
+        "experiment_attribute",
+        "library_layout_length",
+        "library_layout_sdev",
+        "nreads",
     },
     "sradb.run": {
-        "run_ID", "run_alias", "run_accession", "experiment_accession",
-        "total_spots", "total_bases", "run_attribute",
+        "run_ID",
+        "run_alias",
+        "run_accession",
+        "experiment_accession",
+        "total_spots",
+        "total_bases",
+        "run_attribute",
     },
     "sradb.sra": {
-        "sra_ID", "run_alias", "run_accession", "spots", "bases",
-        "run_attribute", "experiment_alias", "experiment_accession",
-        "experiment_title", "design_description", "library_name",
-        "library_strategy", "library_source", "library_selection",
-        "library_layout", "library_construction_protocol", "read_spec",
-        "platform", "instrument_model", "experiment_attribute", "sample_alias",
-        "sample_accession", "taxon_id", "scientific_name", "description",
-        "sample_attribute", "biosample_accession", "study_alias",
-        "study_accession", "study_title", "study_type", "study_abstract",
-        "center_project_name", "bioproject_accession", "geo_accession",
-        "study_description", "study_attribute",
+        "sra_ID",
+        "run_alias",
+        "run_accession",
+        "spots",
+        "bases",
+        "run_attribute",
+        "experiment_alias",
+        "experiment_accession",
+        "experiment_title",
+        "design_description",
+        "library_name",
+        "library_strategy",
+        "library_source",
+        "library_selection",
+        "library_layout",
+        "library_construction_protocol",
+        "read_spec",
+        "platform",
+        "instrument_model",
+        "experiment_attribute",
+        "sample_alias",
+        "sample_accession",
+        "taxon_id",
+        "scientific_name",
+        "description",
+        "sample_attribute",
+        "biosample_accession",
+        "study_alias",
+        "study_accession",
+        "study_title",
+        "study_type",
+        "study_abstract",
+        "center_project_name",
+        "bioproject_accession",
+        "geo_accession",
+        "study_description",
+        "study_attribute",
     },
     "geometadb.gse": {
-        "gse", "title", "status", "submission_date", "last_update_date",
-        "summary", "pubmed_id", "type", "contributor", "web_link",
-        "overall_design", "contact_country", "contact_email",
-        "contact_first_name", "contact_institute", "contact_last_name",
-        "contact", "supplemental_files", "has_geo_computed_rnaseq",
-        "bioprojects", "sra_studies", "subseries",
+        "gse",
+        "title",
+        "status",
+        "submission_date",
+        "last_update_date",
+        "summary",
+        "pubmed_id",
+        "type",
+        "contributor",
+        "web_link",
+        "overall_design",
+        "contact_country",
+        "contact_email",
+        "contact_first_name",
+        "contact_institute",
+        "contact_last_name",
+        "contact",
+        "supplemental_files",
+        "has_geo_computed_rnaseq",
+        "bioprojects",
+        "sra_studies",
+        "subseries",
     },
     "geometadb.gpl": {
-        "title", "gpl", "status", "submission_date", "last_update_date",
-        "technology", "distribution", "organism", "manufacturer",
-        "manufacture_protocol", "description", "web_link", "contact",
+        "title",
+        "gpl",
+        "status",
+        "submission_date",
+        "last_update_date",
+        "technology",
+        "distribution",
+        "organism",
+        "manufacturer",
+        "manufacture_protocol",
+        "description",
+        "web_link",
+        "contact",
         "data_row_count",
     },
     # dropped legacy columns that must NOT reappear (always-NULL in modern data)
     "_dropped": {
-        "sradb.study": {"sra_link", "ddbj_link", "ena_link", "related_studies",
-                        "submission_accession", "sradb_updated"},
-        "sradb.run": {"run_date", "run_center", "bamFile", "instrument_name",
-                      "sra_link", "sradb_updated"},
-        "sradb.experiment": {"base_caller", "quality_scorer", "adapter_spec",
-                             "bamFile", "fastqFTP", "sradb_updated"},
+        "sradb.study": {
+            "sra_link",
+            "ddbj_link",
+            "ena_link",
+            "related_studies",
+            "submission_accession",
+            "sradb_updated",
+        },
+        "sradb.run": {
+            "run_date",
+            "run_center",
+            "bamFile",
+            "instrument_name",
+            "sra_link",
+            "sradb_updated",
+        },
+        "sradb.experiment": {
+            "base_caller",
+            "quality_scorer",
+            "adapter_spec",
+            "bamFile",
+            "fastqFTP",
+            "sradb_updated",
+        },
     },
 }
 
 # gsm expected set built programmatically (16 per-channel columns).
-_CH = ["source_name", "organism", "characteristics", "molecule", "label",
-       "treatment_protocol", "extract_protocol", "label_protocol"]
-EXPECTED["geometadb.gsm"] = {
-    "title", "gsm", "gpl", "status", "submission_date", "last_update_date",
-    "type", "channel_records", "hyb_protocol", "description", "data_processing",
-    "contact", "supplemental_files", "data_row_count", "channel_count",
-    "biosample", "sra_experiment", "library_source",
-} | {f"{c}_ch1" for c in _CH} | {f"{c}_ch2" for c in _CH}
+_CH = [
+    "source_name",
+    "organism",
+    "characteristics",
+    "molecule",
+    "label",
+    "treatment_protocol",
+    "extract_protocol",
+    "label_protocol",
+]
+EXPECTED["geometadb.gsm"] = (
+    {
+        "title",
+        "gsm",
+        "gpl",
+        "status",
+        "submission_date",
+        "last_update_date",
+        "type",
+        "channel_records",
+        "hyb_protocol",
+        "description",
+        "data_processing",
+        "contact",
+        "supplemental_files",
+        "data_row_count",
+        "channel_count",
+        "biosample",
+        "sra_experiment",
+        "library_source",
+    }
+    | {f"{c}_ch1" for c in _CH}
+    | {f"{c}_ch2" for c in _CH}
+)
 
 
 def _model_select(path: Path) -> str:
@@ -178,7 +313,9 @@ def _build() -> duckdb.DuckDBPyConnection:
     files = sorted((MODELS_DIR / "geometadb").glob("*.sql")) + sorted(
         (MODELS_DIR / "sradb").glob("*.sql")
     )
-    filters = [p for p in files if p.stem.endswith("_runs") and p.stem != "run_with_study"]
+    filters = [
+        p for p in files if p.stem.endswith("_runs") and p.stem != "run_with_study"
+    ]
     base = [p for p in files if p not in filters]
     for path in base + filters:
         schema = path.parent.name
