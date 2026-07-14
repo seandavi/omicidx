@@ -26,6 +26,7 @@ from omicidx.prefect.flows.postgres import postgres_load_flow
 from omicidx.prefect.flows.publish_bundle import publish_bundle_flow
 from omicidx.prefect.flows.pubmed import pubmed_extract_flow
 from omicidx.prefect.flows.sra import sra_extract_flow
+from omicidx.prefect.flows.transform import transform_flow
 
 from prefect import flow
 
@@ -44,7 +45,7 @@ def raw_extract_flow(force: bool = False) -> None:
 
 @flow(name="daily-pipeline")
 def daily_pipeline_flow(force: bool = False) -> None:
-    """Daily pipeline: extract → ducklake-load → parquet-export → postgres → publish.
+    """Daily pipeline: extract → ducklake-load → transform → parquet-export → postgres → publish.
 
     ``parquet-export`` returns the publish date it stamped v{date}/ with;
     ``publish-bundle`` is pinned to that same date so the frozen bundle
@@ -55,6 +56,7 @@ def daily_pipeline_flow(force: bool = False) -> None:
     """
     raw_extract_flow(force=force)
     ducklake_load_flow()
+    transform_flow()
     date = parquet_export_flow()
     postgres_load_flow()
     publish_bundle_flow(date=date)

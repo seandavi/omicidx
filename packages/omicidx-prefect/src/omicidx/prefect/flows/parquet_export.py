@@ -36,8 +36,9 @@ from omicidx.prefect.flows.ducklake import LAKE_SCHEMA
 from prefect import flow, get_run_logger, task
 
 # (lake table, public parquet filename). Names differ: lake tables are
-# singular; the public files (and the 020 src_* views) use the plural form.
-# Authoritative against sql/020_base_parquet_views.sql + the ducklake_* loaders.
+# singular; the public files use the plural form. Authoritative against the
+# ducklake_* loaders. These base-parquet exports are a public deliverable in
+# their own right (ADR-0004), separate from the marts below.
 EXPORTS: list[tuple[str, str]] = [
     ("bioproject", "bioprojects.parquet"),
     ("biosample", "biosamples.parquet"),
@@ -51,6 +52,29 @@ EXPORTS: list[tuple[str, str]] = [
     ("sra_run", "sra_runs.parquet"),
     ("sra_accessions", "sra_accessions.parquet"),
     ("pubmed_article", "pubmed_articles.parquet"),
+]
+
+# SQLMesh-materialized marts: lake.{sradb,geometadb}.* → public parquet, one file
+# per mart under <schema>/. The thin public duckdb (flows/sql.py) is nothing but
+# views over exactly these files — no re-derivation. Names preserve the published
+# sradb.*/geometadb.* contract verbatim. Authoritative against transform/models/.
+MART_EXPORTS: list[tuple[str, str]] = [
+    ("sradb", "study"),
+    ("sradb", "sample"),
+    ("sradb", "experiment"),
+    ("sradb", "run"),
+    ("sradb", "run_with_study"),
+    ("sradb", "sra"),
+    ("sradb", "human_runs"),
+    ("sradb", "mouse_runs"),
+    ("sradb", "rnaseq_runs"),
+    ("sradb", "wgs_runs"),
+    ("geometadb", "gse"),
+    ("geometadb", "gsm"),
+    ("geometadb", "gpl"),
+    ("geometadb", "gse_gsm"),
+    ("geometadb", "gse_gpl"),
+    ("geometadb", "geo_supplemental_files"),
 ]
 
 
@@ -139,6 +163,8 @@ def parquet_export_flow(
     date = date or publish_date()
     for lake_table, filename in EXPORTS:
         export_table(lake_table, filename, date, lake_schema=lake_schema)
+    for schema, table in MART_EXPORTS:
+        export_table(table, f"{schema}/{table}.parquet", date, lake_schema=schema)
     prune_dated_folders(date)
     return date
 
