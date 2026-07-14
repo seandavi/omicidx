@@ -25,6 +25,7 @@ from dateutil.relativedelta import relativedelta
 from omicidx.parsers.geo import parser as gp
 from omicidx.prefect.config import get_upath
 from omicidx.prefect.semaphore import SemaphoreStore
+from omicidx.prefect.source import run_extraction
 from upath import UPath
 
 from prefect import flow, get_run_logger, task
@@ -175,11 +176,18 @@ def _write_ndjson_gz(records: list[dict], path: UPath) -> int:
 
 @task(retries=2, retry_delay_seconds=60, task_run_name="geo-extract-{key}")
 def extract_month(key: str, force: bool = False) -> dict:
-    """Extract one calendar-month partition of GEO metadata."""
+    """Extract one calendar-month partition of GEO metadata.
+
+    The current month always re-extracts (it accrues records during the month);
+    a past month with a semaphore is skipped unless ``force``.
+    """
     log = get_run_logger()
     sem = SemaphoreStore("geo")
 
-    if not force and sem.exists(key):
+    # "Current month is volatile" is defined in two paired places: GeoSource.
+    # list_partitions keeps it pending (always=[current]); this guard makes it
+    # never skip on a stale semaphore. Change both together.
+    if not force and key != _month_key(date.today()) and sem.exists(key):
         log.info(f"geo/{key}: semaphore exists, skipping")
         return {"key": key, "skipped": True}
 
@@ -286,6 +294,33 @@ def _enumerate_months(start: str = "2005-01", end: str | None = None) -> list[st
     return keys
 
 
+class GeoSource:
+    """GEO metadata, partitioned by calendar month (the ``Source`` protocol).
+
+    Hides: the eutils accession search, per-entity SOFT fetch/parse, the
+    NDJSON layout, and the "current month is never done" cursor.
+    """
+
+    name = "geo"
+    extract = staticmethod(extract_month)
+
+    def __init__(
+        self,
+        start_month: str = "2005-01",
+        end_month: str | None = None,
+        rerun_current_month: bool = True,
+    ) -> None:
+        self.start_month = start_month
+        self.end_month = end_month
+        self.rerun_current_month = rerun_current_month
+
+    def list_partitions(self, force: bool = False) -> list[str]:
+        months = _enumerate_months(start=self.start_month, end=self.end_month)
+        current = _month_key(date.today())
+        always = [current] if self.rerun_current_month else []
+        return SemaphoreStore("geo").pending_keys(months, always=always, force=force)
+
+
 @flow(
     name="geo-extract",
     task_runner=ProcessPoolTaskRunner(max_workers=2),
@@ -303,22 +338,14 @@ def geo_extract_flow(
     everything in the range. Set ``rerun_current_month=False`` to also
     skip the current month if its semaphore exists.
     """
-    months = _enumerate_months(start=start_month, end=end_month)
-    current_key = _month_key(date.today())
-    sem = SemaphoreStore("geo")
-    # Single LIST to skip already-done months, instead of one task run +
-    # HEAD per month. The current month always re-runs (it accrues) when
-    # rerun_current_month is set.
-    always = [current_key] if rerun_current_month else []
-    todo = sem.pending_keys(months, always=always, force=force)
-    log = get_run_logger()
-    log.info(f"{len(todo)}/{len(months)} month partitions pending extraction")
-    futures = []
-    for key in todo:
-        force_this = force or (rerun_current_month and key == current_key)
-        futures.append(extract_month.submit(key=key, force=force_this))
-    for fut in futures:
-        fut.result()
+    run_extraction(
+        GeoSource(
+            start_month=start_month,
+            end_month=end_month,
+            rerun_current_month=rerun_current_month,
+        ),
+        force=force,
+    )
 
 
 @flow(name="geo-rna-seq-counts")

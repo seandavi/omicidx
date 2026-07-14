@@ -1,0 +1,41 @@
+MODEL (
+  name geometadb.gsm,
+  kind VIEW
+);
+
+SELECT
+    title,
+    accession AS gsm,
+    platform_id AS gpl,
+    status,
+    submission_date,
+    last_update_date,
+    type,
+    channels[1].source_name AS source_name_ch1,
+    channels[1].organism AS organism_ch1,
+    channels[1].characteristics AS characteristics_ch1,
+    channels[1].molecule AS molecule_ch1,
+    channels[1].label AS label_ch1,
+    channels[1].treatment_protocol AS treatment_protocol_ch1,
+    channels[1].extract_protocol AS extract_protocol_ch1,
+    channels[1].label_protocol AS label_protocol_ch1,
+    channels[2].source_name AS source_name_ch2,
+    channels[2].organism AS organism_ch2,
+    channels[2].characteristics AS characteristics_ch2,
+    channels[2].molecule AS molecule_ch2,
+    channels[2].label AS label_ch2,
+    channels[2].treatment_protocol AS treatment_protocol_ch2,
+    channels[2].extract_protocol AS extract_protocol_ch2,
+    channels[2].label_protocol AS label_protocol_ch2,
+    channels AS channel_records,
+    hyb_protocol,
+    description,
+    data_processing,
+    contact."name"."first" || ' ' || contact."name"."last" AS contact,
+    supplemental_files,
+    data_row_count,
+    channel_count,
+    biosample,
+    sra_experiment,
+    library_source
+FROM src.geo_samples;

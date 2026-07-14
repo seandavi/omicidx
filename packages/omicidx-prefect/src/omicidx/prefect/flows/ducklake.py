@@ -147,23 +147,40 @@ def bioproject_to_ducklake(lake_schema: str = LAKE_SCHEMA) -> dict:
 
 @task(retries=1, retry_delay_seconds=60)
 def ducklake_maintenance(
-    expire_older_than: str = "now() - INTERVAL 30 DAY",
+    retention_days: int | None = None,
     compact: bool = True,
 ) -> dict:
-    """Expire old snapshots, delete their data files, and compact.
+    """Reclaim space (cleanup + compaction) and, optionally, expire snapshots.
 
-    DROP/rewrite in DuckLake only unlinks in the catalog; reclaiming R2
-    space needs expire_snapshots + cleanup_old_files. Compaction
-    (merge_adjacent_files) coalesces the many small parquet files that
-    incremental MERGEs accumulate. Default retention is 30 days of
-    snapshots (appropriate for incremental tables; full-snapshot tables
-    keep little useful history, so a tighter window can be passed).
+    Retention is UNBOUNDED by default (``retention_days=None``): the internal
+    lake is omicidx's primary time machine (spec §1). upsert deltas are small
+    under copy-on-write — only changed rows are rewritten, and for several
+    sources the raw inputs are *larger* than the lake — so keeping every
+    snapshot is cheap. Raw Parquet under PUBLISH_ROOT is the re-derivation
+    backstop: re-deriving from the *retained* raw reproduces lake state (it is
+    not a re-fetch from NCBI/EBI, which move). It is insurance, not the query
+    path.
+
+    Space is still reclaimed safely without expiry: ``cleanup_old_files`` only
+    deletes files unreferenced by ANY retained snapshot, and
+    ``merge_adjacent_files`` coalesces the small parquet files that incremental
+    upserts accumulate. Neither drops snapshot history — a data file pinned by a
+    retained snapshot is never removed.
+
+    ``ducklake_expire_snapshots`` is the only call that removes history. The
+    DEFAULT path never runs it, so the scheduled/default invocation can only
+    extend retention. Passing an explicit ``retention_days`` (operator opt-in)
+    deliberately re-enables bounded expiry — the one path that shortens
+    retention. ``retention_days`` is a typed int (not a raw SQL interval), so it
+    cannot inject SQL.
     """
     log = get_run_logger()
     with get_ducklake_connection() as con:
-        con.execute(
-            f"CALL ducklake_expire_snapshots('lake', older_than => {expire_older_than})"
-        )
+        if retention_days is not None:
+            con.execute(
+                "CALL ducklake_expire_snapshots('lake', "
+                f"older_than => now() - INTERVAL {int(retention_days)} DAY)"
+            )
         deleted = con.execute(
             "CALL ducklake_cleanup_old_files('lake', cleanup_all => true)"
         ).fetchall()
@@ -172,10 +189,12 @@ def ducklake_maintenance(
         remaining = con.execute("SELECT count(*) FROM lake.snapshots()").fetchone()[0]
     log.info(
         f"Cleaned {len(deleted)} orphaned files; compact={compact}; "
+        f"expired={'none (unbounded)' if retention_days is None else f'>{int(retention_days)}d'}; "
         f"{remaining} snapshots remain"
     )
     return {
         "files_deleted": len(deleted),
         "compacted": compact,
+        "retention_days": retention_days,
         "snapshots_remaining": remaining,
     }

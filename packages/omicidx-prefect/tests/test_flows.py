@@ -19,6 +19,7 @@ FLOW_MODULES = [
     "omicidx.prefect.flows.ducklake_pubmed",
     "omicidx.prefect.flows.ducklake_ebi_biosample",
     "omicidx.prefect.flows.ducklake_sra_accessions",
+    "omicidx.prefect.flows.ducklake_geo_rnaseq_counts",
     "omicidx.prefect.flows.ducklake_load",
     "omicidx.prefect.flows.postgres",
     "omicidx.prefect.flows.sql",
@@ -103,6 +104,81 @@ def test_semaphore_roundtrip(monkeypatch, tmp_path):
     assert store.clear("2024-09-13_Full") is True
     assert not store.exists("2024-09-13_Full")
     assert store.clear("2024-09-13_Full") is False
+
+
+def _stub_env(monkeypatch, tmp_path):
+    monkeypatch.setenv("PUBLISH_ROOT", str(tmp_path))
+    monkeypatch.setenv("S3_ACCESS_KEY_ID", "x")
+    monkeypatch.setenv("S3_SECRET_ACCESS_KEY", "x")
+    monkeypatch.setenv("S3_ENDPOINT", "https://example.r2.cloudflarestorage.com")
+    monkeypatch.setenv("S3_REGION", "auto")
+    from omicidx.prefect import config
+
+    config.settings.cache_clear()
+
+
+def test_real_sources_conform_to_protocol(monkeypatch, tmp_path):
+    """Every extract flow exposes a Source: name + list_partitions + extract."""
+    _stub_env(monkeypatch, tmp_path)
+    from omicidx.prefect.flows.biosample import BioprojectSource, BiosampleSource
+    from omicidx.prefect.flows.ebi_biosample import EbiBiosampleSource
+    from omicidx.prefect.flows.geo import GeoSource
+    from omicidx.prefect.flows.pubmed import PubmedSource
+    from omicidx.prefect.flows.sra import SraSource
+    from omicidx.prefect.source import Source
+
+    for cls in (
+        SraSource,
+        GeoSource,
+        PubmedSource,
+        EbiBiosampleSource,
+        BiosampleSource,
+        BioprojectSource,
+    ):
+        s = cls()
+        assert isinstance(s, Source), cls.__name__
+        assert isinstance(s.name, str) and s.name
+        assert hasattr(s.extract, "submit"), f"{cls.__name__}.extract is not a task"
+
+
+def test_run_extraction_drives_every_key_with_force(monkeypatch, tmp_path):
+    """The generic driver lists pending keys and extracts each, threading force."""
+    _stub_env(monkeypatch, tmp_path)
+    from omicidx.prefect.source import Source, run_extraction
+    from prefect import flow, task
+    from prefect.testing.utilities import prefect_test_harness
+
+    calls: list[tuple[str, bool]] = []
+
+    @task
+    def fake_extract(key: str, force: bool = False) -> dict:
+        calls.append((key, force))
+        return {"key": key, "skipped": False}
+
+    class FakeSource:
+        name = "fake"
+        extract = staticmethod(fake_extract)
+
+        def list_partitions(self, force: bool = False) -> list[str]:
+            return ["a", "b", "c"] if force else ["a", "b"]
+
+    assert isinstance(FakeSource(), Source)
+
+    @flow
+    def drive(force: bool = False) -> list[dict]:
+        return run_extraction(FakeSource(), force=force)
+
+    with prefect_test_harness():
+        results = drive(force=False)
+        assert sorted(c[0] for c in calls) == ["a", "b"]
+        assert all(c[1] is False for c in calls)
+        assert len(results) == 2
+
+        calls.clear()
+        drive(force=True)
+        # force reaches both list_partitions (extra key "c") and each extract
+        assert sorted(c[0] for c in calls) == ["a", "b", "c"]
+        assert all(c[1] is True for c in calls)
 
 
 def test_semaphore_pending_keys(monkeypatch, tmp_path):

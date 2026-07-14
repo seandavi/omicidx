@@ -2,6 +2,39 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Deliverables & invariants (durable intent)
+
+Durable source of intent: **`docs/specs/omicidx-deliverables.md`** (endpoints,
+gap analysis, staged plan, precedent-setting decisions). Read it before
+proposing structural changes.
+
+Deliverable dependency structure (not a flat list): steel thread **(1) internal
+lake → (2) external frozen artifact**, then derived **(3) marts → (4) docs
+site**; **(5) R/Python client** and **(6) performant API** are optional and
+gated on explicit opt-in.
+
+Invariants that follow from the finalized decisions:
+
+- **Extraction contract:** each source is a deep module behind a narrow Source
+  protocol — `list_partitions() -> keys` and `extract(key, force)`. Output
+  format, partitioning, and incrementality are hidden inside the source module,
+  not leaked to downstream loaders.
+- **Catalog topology:** one internal catalog — the shared cdsci-lake Postgres
+  `lake` DB, `omicidx` schema, data at `r2://cdsci-lake/`. The external side is
+  a **published, retaining file-catalog DuckLake bundle** (Parquet + `omicidx.duckdb`
+  + `views.sql` + a read-only **file-based** catalog + a provenance manifest),
+  `omicidx` tables only — never a second live Postgres catalog.
+- **Frozen-lake read path:** anonymous HTTPS via the Cloudflare Worker /
+  custom-domain (range requests). No `--no-sign-request` R2, no client
+  credentials. Rolling `latest/` + immutable dated `v{date}/`. Anonymous,
+  credential-free file-catalog `ATTACH` over HTTPS range is the load-bearing
+  assumption — verify it end-to-end early.
+- **Time travel:** the internal lake is the primary time machine (extended
+  snapshot retention); raw Parquet is the re-derivation backstop, not the primary
+  query path. **External** time-travel is an *earned unlock* (spec Stage B′) gated
+  on snapshot faithfulness (a per-publish bundle manifest + transform lineage) —
+  it is neither a v1 feature nor a closed door.
+
 ## Repo structure
 
 This is a **uv workspace** consolidating four packages:

@@ -41,7 +41,10 @@ export default defineConfig({
         },
         {
           label: "Guides",
-          items: [{ label: "Overview", slug: "guides" }],
+          items: [
+            { label: "Overview", slug: "guides" },
+            { label: "DuckDB snapshot", slug: "guides/duckdb-snapshot" },
+          ],
         },
         {
           label: "Contributing",

@@ -1,6 +1,7 @@
 # DuckDB files (generated, not checked in)
 *.duckdb
 *.duckdb.wal
+omicidx.metadata.json
 
 # Secrets
 .env
@@ -10,9 +11,14 @@ __pycache__/
 *.pyc
 .venv/
 
+# Node
+node_modules/
+
 # OS
 .DS_Store
 
 # IDE
 .vscode/
 .idea/
+
+/.claude/handoffs/
