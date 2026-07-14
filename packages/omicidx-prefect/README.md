@@ -86,9 +86,11 @@ packages/omicidx-prefect/
 │   │   ├── ebi_biosample.py
 │   │   ├── consolidate.py
 │   │   ├── postgres.py
-│   │   ├── sql.py
+│   │   ├── sql.py           # thin duckdb-build (mart views over public Parquet)
+│   │   ├── transform.py     # SQLMesh transform flow (plan/apply)
 │   │   └── main.py          # daily_pipeline_flow
-│   └── sql/                 # DuckDB view SQL (020–050)
+│   ├── transform/           # SQLMesh project: src→stg→geometadb/sradb marts
+│   └── sql/                 # raw→parquet SQL (010 only; 020–050 → SQLMesh)
 └── tests/
 ```
 
@@ -133,9 +135,11 @@ docker compose exec worker prefect deploy --all
 docker compose exec worker prefect deployment ls
 ```
 
-The pipeline is `raw-extract → ducklake-load → parquet-export →
+The pipeline is `raw-extract → ducklake-load → transform → parquet-export →
 postgres-load → duckdb-build`; schedules live in `prefect.yaml`.
-`parquet-export` is the reverse-ETL (lake → public Parquet, ADR-0004).
+`transform` is the SQLMesh mart build (lake views); `parquet-export` is the
+reverse-ETL (lake tables + marts → public Parquet, ADR-0004); `duckdb-build` is
+now a thin set of mart views over that public Parquet.
 
 ## Mapping from Dagster
 
