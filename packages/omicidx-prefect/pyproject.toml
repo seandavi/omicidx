@@ -28,6 +28,8 @@ dependencies = [
     "pydantic-settings>=2.0",
     "click>=8.0",
     "cdsci-lake @ git+https://github.com/seandavi/cdsci-lake@v0.2.1",
+    "sqlmesh>=0.236.0",
+    "psycopg2-binary>=2.9.12",
 ]
 
 [project.scripts]

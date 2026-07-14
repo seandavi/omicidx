@@ -1,0 +1,240 @@
+- name: '"lake"."omicidx"."bioproject"'
+  columns:
+    accession: TEXT
+    title: TEXT
+    description: TEXT
+    name: TEXT
+    publications: STRUCT(pubdate TIMESTAMP, id TEXT, db TEXT)[]
+    locus_tags: STRUCT(biosample_id TEXT, assembly_id TEXT, "value" TEXT)[]
+    release_date: TIMESTAMP
+    data_types: TEXT[]
+    external_links: STRUCT(category TEXT, "label" TEXT, url TEXT)[]
+  gateway: lake
+- name: '"lake"."omicidx"."biosample"'
+  columns:
+    submission_date: TEXT
+    last_update: TEXT
+    publication_date: TEXT
+    access: TEXT
+    id: TEXT
+    accession: TEXT
+    id_recs: STRUCT(db TEXT, "label" TEXT, id TEXT)[]
+    ids: TEXT[]
+    sra_sample: TEXT
+    dbgap: TEXT
+    gsm: TEXT
+    title: TEXT
+    description: TEXT
+    taxonomy_name: TEXT
+    taxon_id: BIGINT
+    attribute_recs: STRUCT(attribute_name TEXT, "value" TEXT, harmonized_name 
+      TEXT, display_name TEXT, unit TEXT)[]
+    attributes: TEXT[]
+    model: TEXT
+  gateway: lake
+- name: '"lake"."omicidx"."geo_platform"'
+  columns:
+    title: TEXT
+    status: TEXT
+    submission_date: DATE
+    last_update_date: DATE
+    accession: TEXT
+    contact: STRUCT(city TEXT, "name" STRUCT("first" TEXT, middle TEXT, "last" 
+      TEXT), email TEXT, state TEXT, address TEXT, department TEXT, country 
+      TEXT, web_link TEXT, institute TEXT, zip_postal_code JSON, phone TEXT)
+    organism: TEXT
+    sample_id: TEXT[]
+    series_id: TEXT[]
+    technology: TEXT
+    description: TEXT
+    distribution: TEXT
+    manufacturer: TEXT[]
+    data_row_count: BIGINT
+    contributor: STRUCT("first" TEXT, middle TEXT, "last" TEXT)[]
+    relation: TEXT[]
+    manufacture_protocol: TEXT
+  gateway: lake
+- name: '"lake"."omicidx"."geo_sample"'
+  columns:
+    title: TEXT
+    status: TEXT
+    submission_date: DATE
+    last_update_date: DATE
+    type: TEXT
+    anchor: TEXT
+    contact: STRUCT(city TEXT, "name" STRUCT("first" TEXT, middle TEXT, "last" 
+      TEXT), email TEXT, state TEXT, address TEXT, department TEXT, country 
+      TEXT, web_link TEXT, institute TEXT, zip_postal_code JSON, phone TEXT)
+    description: TEXT
+    accession: TEXT
+    biosample: TEXT
+    tag_count: BIGINT
+    tag_length: DOUBLE
+    platform_id: TEXT
+    hyb_protocol: TEXT
+    channel_count: BIGINT
+    scan_protocol: TEXT
+    data_row_count: BIGINT
+    library_source: TEXT
+    sra_experiment: TEXT
+    data_processing: TEXT
+    supplemental_files: TEXT[]
+    channels: STRUCT("label" TEXT, taxid BIGINT[], molecule TEXT, organism TEXT,
+      source_name TEXT, label_protocol TEXT, growth_protocol TEXT, 
+      extract_protocol TEXT, treatment_protocol TEXT, "characteristics" 
+      STRUCT(tag TEXT, "value" TEXT)[])[]
+    contributor: JSON[]
+  gateway: lake
+- name: '"lake"."omicidx"."geo_series"'
+  columns:
+    title: TEXT
+    status: TEXT
+    submission_date: DATE
+    last_update_date: DATE
+    accession: TEXT
+    subseries: TEXT[]
+    bioprojects: TEXT[]
+    sra_studies: TEXT[]
+    contact: STRUCT(city TEXT, "name" STRUCT("first" TEXT, middle TEXT, "last" 
+      TEXT), email TEXT, state TEXT, address TEXT, department TEXT, country 
+      TEXT, web_link TEXT, institute TEXT, zip_postal_code JSON, phone TEXT)
+    type: TEXT[]
+    summary: TEXT
+    relation: TEXT[]
+    pubmed_id: BIGINT[]
+    sample_id: TEXT[]
+    sample_taxid: BIGINT[]
+    sample_organism: TEXT[]
+    platform_id: TEXT[]
+    platform_taxid: BIGINT[]
+    platform_organism: TEXT[]
+    supplemental_files: TEXT[]
+    overall_design: TEXT
+    contributor: STRUCT("first" TEXT, middle TEXT, "last" TEXT)[]
+  gateway: lake
+- name: '"lake"."omicidx"."geo_series_with_rnaseq_counts"'
+  columns:
+    accession: TEXT
+  gateway: lake
+- name: '"lake"."omicidx"."pubmed_article"'
+  columns:
+    pmid: TEXT
+    title: TEXT
+    issue: TEXT
+    pages: TEXT
+    abstract: TEXT
+    journal: TEXT
+    authors: STRUCT(lastname TEXT, forename TEXT, initials TEXT, identifier 
+      TEXT, affiliation TEXT)[]
+    pubdate: TEXT
+    mesh_terms: TEXT
+    publication_types: TEXT
+    chemical_list: TEXT
+    keywords: TEXT
+    doi: TEXT
+    references: STRUCT(citation TEXT, pmid TEXT)[]
+    languages: TEXT
+    vernacular_title: TEXT
+    date_completed: TEXT
+    date_revised: TEXT
+    pmc: TEXT
+    other_id: TEXT
+    medline_ta: TEXT
+    nlm_unique_id: TEXT
+    issn_linking: TEXT
+    country: TEXT
+    grant_ids: STRUCT(grant_id TEXT, grant_acronym TEXT, country TEXT, agency 
+      TEXT)[]
+  gateway: lake
+- name: '"lake"."omicidx"."sra_accessions"'
+  columns:
+    accession: TEXT
+    submission: TEXT
+    status: TEXT
+    updated: TIMESTAMPTZ
+    published: TIMESTAMPTZ
+    received: TIMESTAMPTZ
+    type: TEXT
+    center: TEXT
+    visibility: TEXT
+    alias: TEXT
+    experiment: TEXT
+    sample: TEXT
+    study: TEXT
+    loaded: BIGINT
+    spots: BIGINT
+    bases: BIGINT
+    md5sum: TEXT
+    biosample: TEXT
+    bioproject: TEXT
+    replacedby: TEXT
+  gateway: lake
+- name: '"lake"."omicidx"."sra_experiment"'
+  columns:
+    accession: TEXT
+    experiment_accession: TEXT
+    alias: TEXT
+    title: TEXT
+    design: TEXT
+    center_name: TEXT
+    study_accession: TEXT
+    sample_accession: TEXT
+    platform: TEXT
+    instrument_model: TEXT
+    library_name: TEXT
+    library_construction_protocol: TEXT
+    library_layout: TEXT
+    library_layout_length: TEXT
+    library_layout_sdev: TEXT
+    library_strategy: TEXT
+    library_source: TEXT
+    library_selection: TEXT
+    spot_length: BIGINT
+    nreads: BIGINT
+    identifiers: STRUCT(namespace TEXT, id TEXT, uuid TEXT)[]
+    attributes: STRUCT(tag TEXT, "value" TEXT)[]
+    xrefs: STRUCT(db TEXT, id TEXT)[]
+    reads: STRUCT(base_coord BIGINT, read_class TEXT, read_index BIGINT, 
+      read_type TEXT)[]
+  gateway: lake
+- name: '"lake"."omicidx"."sra_run"'
+  columns:
+    accession: TEXT
+    alias: TEXT
+    experiment_accession: TEXT
+    title: TEXT
+    identifiers: STRUCT(namespace TEXT, id TEXT, uuid TEXT)[]
+    attributes: STRUCT(tag TEXT, "value" TEXT)[]
+    qualities: STRUCT(quality INT, count BIGINT)[]
+  gateway: lake
+- name: '"lake"."omicidx"."sra_sample"'
+  columns:
+    accession: TEXT
+    alias: TEXT
+    title: TEXT
+    organism: TEXT
+    description: TEXT
+    taxon_id: INT
+    biosample: TEXT
+    identifiers: STRUCT(namespace TEXT, id TEXT, uuid TEXT)[]
+    attributes: STRUCT(tag TEXT, "value" TEXT)[]
+    xrefs: STRUCT(db TEXT, id TEXT)[]
+  gateway: lake
+- name: '"lake"."omicidx"."sra_study"'
+  columns:
+    accession: TEXT
+    study_accession: TEXT
+    alias: TEXT
+    title: TEXT
+    description: TEXT
+    abstract: TEXT
+    study_type: TEXT
+    center_name: TEXT
+    broker_name: TEXT
+    bioproject: TEXT
+    geo: TEXT
+    identifiers: STRUCT(namespace TEXT, id TEXT, uuid TEXT)[]
+    attributes: STRUCT(tag TEXT, "value" TEXT)[]
+    xrefs: STRUCT(db TEXT, id TEXT)[]
+    pubmed_ids: TEXT[]
+  gateway: lake

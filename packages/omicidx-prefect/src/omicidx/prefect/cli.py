@@ -181,6 +181,15 @@ def run_publish_bundle(date: str | None) -> None:
     publish_bundle_flow(date=date)
 
 
+@run.command("transform")
+@click.option("--environment", default="prod", help="SQLMesh environment.")
+def run_transform(environment: str) -> None:
+    """Apply the SQLMesh marts into the lake (plan --auto-apply). Run after ducklake-load."""
+    from omicidx.prefect.flows.transform import transform_flow
+
+    transform_flow(environment=environment)
+
+
 @run.command("postgres")
 def run_postgres() -> None:
     from omicidx.prefect.flows.postgres import postgres_load_flow

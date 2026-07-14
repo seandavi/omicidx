@@ -1,22 +1,30 @@
 """Schema-resemblance acceptance test for the marts (Stage C / C3).
 
-Builds the geometadb.* / sradb.* views (sql/040, sql/050) in an in-memory
-DuckDB over empty, correctly-typed synthetic upstream tables, then asserts each
-mart view exposes exactly the expected column set. No network / no parquet /
-no live catalog — this checks the SQL is well-formed and that the modernization
-(drop always-NULL legacy columns, keep legacy names, add modern cross-refs)
-holds. The mapping rationale lives in docs/specs/omicidx-marts-adaptation.md.
+Builds the geometadb.* / sradb.* SQLMesh mart models (transform/models/) in an
+in-memory DuckDB over empty, correctly-typed synthetic upstream tables, then
+asserts each mart view exposes exactly the expected column set. No network / no
+parquet / no live catalog — this checks the SQL is well-formed and that the
+modernization (drop always-NULL legacy columns, keep legacy names, add modern
+cross-refs) holds. The mapping rationale lives in
+docs/specs/omicidx-marts-adaptation.md.
+
+The marts now live as SQLMesh VIEW models (the transform engine, transform/);
+the numbered sql/040,050 runner they replaced is gone. This test strips each
+model's MODEL(...) header and materializes the SELECT as a view over synthetic
+`stg.*`/`src.*` upstreams — the same synthetic-schema check, retargeted.
 
 End-to-end fidelity against the real parquet still requires a live-catalog run
-(ducklake-load -> parquet-export -> duckdb-build).
+(ducklake-load -> transform -> parquet-export -> duckdb-build).
 """
 
 from pathlib import Path
 
 import duckdb
-import sqlglot
 
-SQL_DIR = Path(__file__).parent.parent / "src" / "omicidx" / "prefect" / "sql"
+MODELS_DIR = (
+    Path(__file__).parent.parent
+    / "src" / "omicidx" / "prefect" / "transform" / "models"
+)
 
 # Contact struct shared by all GEO entities (superset of fields the views read).
 _CONTACT = (
@@ -29,18 +37,20 @@ _CHANNEL = (
     "extract_protocol VARCHAR, label_protocol VARCHAR)"
 )
 
-# Empty typed upstream tables — columns mirror sql/030 (SRA) and the ducklake
-# GEO loader SELECTs (flows/ducklake_geo.py). Only the columns the marts read.
+# Empty typed upstream tables — columns mirror the stg models (SRA) and the
+# ducklake GEO loader SELECTs (flows/ducklake_geo.py). Only the columns the
+# marts read. Synthetic `stg.*`/`src.*` schemas stand in for the SQLMesh
+# `stg`/`src` models so the marts can be built without a live lake.
 _UPSTREAM_DDL = [
-    """CREATE TABLE main.stg_sra_studies (
+    """CREATE TABLE stg.sra_studies (
         accession VARCHAR, alias VARCHAR, title VARCHAR, study_type VARCHAR,
         abstract VARCHAR, broker_name VARCHAR, center_name VARCHAR,
         bioproject_accession VARCHAR, description VARCHAR, attributes VARCHAR,
         geo_accession VARCHAR, pubmed_ids INTEGER[])""",
-    """CREATE TABLE main.stg_sra_samples (
+    """CREATE TABLE stg.sra_samples (
         accession VARCHAR, alias VARCHAR, taxon_id INTEGER, organism VARCHAR,
         description VARCHAR, attributes VARCHAR, biosample_accession VARCHAR)""",
-    """CREATE TABLE main.stg_sra_experiments (
+    """CREATE TABLE stg.sra_experiments (
         accession VARCHAR, alias VARCHAR, center_name VARCHAR, title VARCHAR,
         study_accession VARCHAR, design VARCHAR, sample_accession VARCHAR,
         library_name VARCHAR, library_strategy VARCHAR, library_source VARCHAR,
@@ -49,29 +59,29 @@ _UPSTREAM_DDL = [
         reads VARCHAR, platform VARCHAR, instrument_model VARCHAR,
         attributes VARCHAR, library_layout_length INTEGER,
         library_layout_sdev DOUBLE, nreads INTEGER)""",
-    """CREATE TABLE main.stg_sra_runs (
+    """CREATE TABLE stg.sra_runs (
         accession VARCHAR, alias VARCHAR, experiment_accession VARCHAR,
         total_spots BIGINT, total_bases BIGINT, attributes VARCHAR)""",
-    f"""CREATE TABLE main.src_geo_samples (
+    f"""CREATE TABLE src.geo_samples (
         title VARCHAR, accession VARCHAR, platform_id VARCHAR, status VARCHAR,
         submission_date DATE, last_update_date DATE, type VARCHAR,
         channels {_CHANNEL}[], hyb_protocol VARCHAR, description VARCHAR,
         data_processing VARCHAR, contact {_CONTACT}, supplemental_files VARCHAR[],
         data_row_count INTEGER, channel_count INTEGER, biosample VARCHAR,
         sra_experiment VARCHAR, library_source VARCHAR)""",
-    f"""CREATE TABLE main.src_geo_series (
+    f"""CREATE TABLE src.geo_series (
         accession VARCHAR, title VARCHAR, status VARCHAR, submission_date DATE,
         last_update_date DATE, summary VARCHAR, pubmed_id INTEGER[],
         type VARCHAR[], contributor VARCHAR[], overall_design VARCHAR,
         contact {_CONTACT}, supplemental_files VARCHAR[], sample_id VARCHAR[],
         bioprojects VARCHAR[], sra_studies VARCHAR[], subseries VARCHAR[])""",
-    f"""CREATE TABLE main.src_geo_platforms (
+    f"""CREATE TABLE src.geo_platforms (
         title VARCHAR, accession VARCHAR, status VARCHAR, submission_date DATE,
         last_update_date DATE, technology VARCHAR, distribution VARCHAR,
         organism VARCHAR, manufacturer VARCHAR[], manufacture_protocol VARCHAR,
         description VARCHAR, contact {_CONTACT}, data_row_count INTEGER,
         series_id VARCHAR[])""",
-    "CREATE TABLE main.src_geo_series_with_rnaseq_counts (accession VARCHAR)",
+    "CREATE TABLE src.geo_series_with_rnaseq_counts (accession VARCHAR)",
 ]
 
 EXPECTED = {
@@ -148,14 +158,31 @@ EXPECTED["geometadb.gsm"] = {
 } | {f"{c}_ch1" for c in _CH} | {f"{c}_ch2" for c in _CH}
 
 
+def _model_select(path: Path) -> str:
+    """Strip the `MODEL (...);` header, return the bare SELECT (no trailing ;)."""
+    # gen writes exactly `MODEL (...\n);\n\n<SELECT>;\n` — split on the blank
+    # line after the header block.
+    body = path.read_text().split(");\n\n", 1)[1]
+    return body.strip().rstrip(";")
+
+
 def _build() -> duckdb.DuckDBPyConnection:
     con = duckdb.connect(":memory:")
+    for schema in ("stg", "src", "geometadb", "sradb"):
+        con.execute(f"CREATE SCHEMA {schema}")
     for ddl in _UPSTREAM_DDL:
         con.execute(ddl)
-    for name in ("040_geometadb_views.sql", "050_sradb_views.sql"):
-        sql = (SQL_DIR / name).read_text()
-        for stmt in sqlglot.transpile(sql, read="duckdb"):
-            con.execute(stmt)
+    # Materialize geometadb + sradb marts as views. Convenience filters
+    # (rnaseq/wgs/human/mouse_runs) read sradb.run_with_study, so build the
+    # base marts first, filters last.
+    files = sorted((MODELS_DIR / "geometadb").glob("*.sql")) + sorted(
+        (MODELS_DIR / "sradb").glob("*.sql")
+    )
+    filters = [p for p in files if p.stem.endswith("_runs") and p.stem != "run_with_study"]
+    base = [p for p in files if p not in filters]
+    for path in base + filters:
+        schema = path.parent.name
+        con.execute(f"CREATE VIEW {schema}.{path.stem} AS {_model_select(path)}")
     return con
 
 
