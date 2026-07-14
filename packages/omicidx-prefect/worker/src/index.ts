@@ -24,7 +24,11 @@ function parseRange(
   const match = header.match(/^bytes=(\d+)-(\d*)$/);
   if (!match) return undefined;
   const start = parseInt(match[1], 10);
-  const end = match[2] ? parseInt(match[2], 10) : totalSize - 1;
+  let end = match[2] ? parseInt(match[2], 10) : totalSize - 1;
+  // Reject unsatisfiable/invalid ranges (start past EOF or end < start) so we
+  // never hand R2 a negative/overflow length; caller falls back to full body.
+  if (start >= totalSize || end < start) return undefined;
+  if (end >= totalSize) end = totalSize - 1; // clamp to EOF
   return { offset: start, length: end - start + 1 };
 }
 

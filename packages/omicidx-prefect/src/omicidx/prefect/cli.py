@@ -207,7 +207,7 @@ def run_duckdb() -> None:
 @run.command("daily")
 @click.option("--force", is_flag=True)
 def run_daily(force: bool) -> None:
-    """Full daily pipeline: extract -> ducklake-load -> parquet-export -> postgres -> duckdb build."""
+    """Full daily pipeline: extract -> ducklake-load -> transform -> parquet-export -> postgres -> publish-bundle."""
     from omicidx.prefect.flows.main import daily_pipeline_flow
 
     daily_pipeline_flow(force=force)

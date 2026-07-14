@@ -6,8 +6,10 @@ modern data warrants. Not a drop-in; not merely a query corpus.
 
 This note is the C1 audit result and the C3 adaptation record: what maps, what
 changed, what was dropped, what modern data is available but not yet surfaced.
-Views live in `sql/040_geometadb_views.sql` (`geometadb.*`) and
-`sql/050_sradb_views.sql` (`sradb.*`).
+The marts now live as SQLMesh models under
+`packages/omicidx-prefect/src/omicidx/prefect/transform/models/{geometadb,sradb}/`
+(materialized as `geometadb.*`/`sradb.*` in the lake). They were ported verbatim
+from the retired `sql/040_geometadb_views.sql` / `sql/050_sradb_views.sql`.
 
 Legacy column lists below are from the Bioconductor SRAdb / GEOmetadb vignettes
 (`study`, `gse`, `gpl` verbatim; `gsm` from `geodb_column_desc`; SRA
@@ -18,9 +20,10 @@ legacy denormalized `sra` table is undocumented in every vignette.
 
 - **No broken references.** Every column the mart views select resolves against
   the upstream `stg_*`/`src_*` views and the `omicidx.parsers` models.
-- **No predecessor drift.** The prefect `040`/`050` files are byte-identical to
-  the omicidx-etl and omicidx-dagster copies — C1 is pure modernization of an
-  inherited legacy shell, not drift reconciliation.
+- **No predecessor drift.** The SQLMesh mart models were ported verbatim from the
+  prefect `040`/`050` SQL, which was byte-identical to the omicidx-etl and
+  omicidx-dagster copies — C1 is pure modernization of an inherited legacy shell,
+  not drift reconciliation.
 - **SRA marts: 100% legacy-column coverage, name-for-name**, with heavy
   NULL-stubbing of columns absent from modern data.
 - **GEO marts: strong coverage** plus a few genuinely-absent legacy curation

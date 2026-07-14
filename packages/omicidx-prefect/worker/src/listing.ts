@@ -35,31 +35,52 @@ export async function listDirectory(
   });
 }
 
+/** Escape text for safe interpolation into HTML element content/attributes. */
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+/**
+ * Encode an R2 key/prefix for use in an href, per-segment so "/" separators
+ * (and any trailing slash) survive. R2 keys can contain URL/HTML-special
+ * characters, so each segment is encodeURIComponent'd.
+ */
+function encodePath(p: string): string {
+  if (!p) return "";
+  const trailing = p.endsWith("/") ? "/" : "";
+  return p.split("/").filter(Boolean).map(encodeURIComponent).join("/") + trailing;
+}
+
 function htmlListing(
   prefix: string,
   directories: string[],
   files: { key: string; size: number; lastModified: string }[],
 ): Response {
-  const title = prefix ? `/${prefix}` : "OmicIDX Data";
+  const title = prefix ? `/${escapeHtml(prefix)}` : "OmicIDX Data";
   const isRoot = !prefix;
 
   const breadcrumbs = buildBreadcrumbs(prefix);
 
   const parentRow = prefix
-    ? `<tr><td><a href="/${prefix.replace(/[^/]+\/$/, "")}">../</a></td><td></td><td></td></tr>`
+    ? `<tr><td><a href="/${encodePath(prefix.replace(/[^/]+\/$/, ""))}">../</a></td><td></td><td></td></tr>`
     : "";
 
   const dirRows = directories
     .map((d) => {
       const name = d.replace(prefix, "");
-      return `<tr><td><a href="/${d}">${name}</a></td><td>&mdash;</td><td>&mdash;</td></tr>`;
+      return `<tr><td><a href="/${encodePath(d)}">${escapeHtml(name)}</a></td><td>&mdash;</td><td>&mdash;</td></tr>`;
     })
     .join("\n");
 
   const fileRows = files
     .map((f) => {
       const name = f.key.replace(prefix, "");
-      return `<tr><td><a href="/${f.key}">${name}</a></td><td>${formatBytes(f.size)}</td><td>${f.lastModified.slice(0, 10)}</td></tr>`;
+      return `<tr><td><a href="/${encodePath(f.key)}">${escapeHtml(name)}</a></td><td>${formatBytes(f.size)}</td><td>${f.lastModified.slice(0, 10)}</td></tr>`;
     })
     .join("\n");
 
@@ -70,7 +91,7 @@ function htmlListing(
            Query directly with <a href="https://duckdb.org/">DuckDB</a>, <a href="https://pola.rs/">Polars</a>,
            or <a href="https://arrow.apache.org/docs/python/">PyArrow</a>.</p>
         <p><strong>Example:</strong></p>
-        <pre><code>SELECT * FROM read_parquet('https://data.omicidx.org/sra/parquet/study.parquet') LIMIT 10;</code></pre>
+        <pre><code>SELECT * FROM read_parquet('https://data.omicidx.cancerdatasci.org/latest/sra_studies.parquet') LIMIT 10;</code></pre>
       </header>`
     : `<header><h1>${title}</h1></header>`;
 
@@ -124,7 +145,7 @@ function buildBreadcrumbs(prefix: string): string {
   const crumbs = [`<a href="/">Home</a>`];
   for (const part of parts) {
     path += part + "/";
-    crumbs.push(`<a href="/${path}">${part}</a>`);
+    crumbs.push(`<a href="/${encodePath(path)}">${escapeHtml(part)}</a>`);
   }
   return crumbs.join(" / ");
 }
