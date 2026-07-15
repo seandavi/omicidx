@@ -43,9 +43,11 @@ services:
       PUBLIC_PARQUET_HTTPS_BASE: ${PUBLIC_PARQUET_HTTPS_BASE}
       # API-serving Postgres (postgres-load target).
       POSTGRES_URI: ${POSTGRES_URI:-postgresql://omicidx@pg_main:5432/omicidx}
-      # DuckLake catalog (ducklake-load). Host pg_main resolves on the
-      # shared network; the catalog's stored data_path governs I/O.
-      DUCKLAKE_URI: ${DUCKLAKE_URI}
+      # DuckLake catalog (ducklake-load). host=pg_main is hardcoded here (not
+      # from .env, whose DUCKLAKE_URI is 127.0.0.1 for the host CLI) so a bare
+      # `docker compose up` always gives the container the right host. Only the
+      # secret interpolates. See reference_ducklake_uri_host_split.
+      DUCKLAKE_URI: "postgres:host=pg_main port=5432 dbname=lake user=postgres password=${DUCKLAKE_PG_PASSWORD}"
       DUCKLAKE_DATA_PATH: ${DUCKLAKE_DATA_PATH}
     command:
       - prefect
