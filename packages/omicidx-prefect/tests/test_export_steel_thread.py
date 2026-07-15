@@ -23,7 +23,6 @@ from pathlib import Path
 import duckdb
 import pytest
 from cdsci.lake.connect import upsert
-
 from omicidx.prefect.flows import parquet_export
 
 
