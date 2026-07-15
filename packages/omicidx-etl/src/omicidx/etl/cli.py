@@ -9,13 +9,11 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from omicidx.etl.biosample.extract import biosample
-from omicidx.etl.build_db import build_db
 from omicidx.etl.europepmc_textmined import europepmc
 from omicidx.etl.geo.extract import geo
 from omicidx.etl.icite import icite
 from omicidx.etl.nih_reporter import nih_reporter
 from omicidx.etl.pubmed import pubmed
-from omicidx.etl.sql.runner import sql
 from omicidx.etl.sra.cli import sra
 
 
@@ -34,8 +32,6 @@ cli.add_command(pubmed)
 cli.add_command(geo)
 cli.add_command(nih_reporter)
 cli.add_command(sra)
-cli.add_command(sql)
-cli.add_command(build_db)
 
 if __name__ == "__main__":
     cli()
