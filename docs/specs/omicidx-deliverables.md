@@ -210,12 +210,12 @@ Grounded in the Phase-0 inspection, not assumptions. Live path is
 ### Endpoint (2) external frozen artifact
 
 - **Reusable:** `parquet_export` COPY to `latest/` (`parquet_export.py:29-55`);
-  `get_public_parquet_path`; `duckdb-build` (`sql.py:60-114`); the Cloudflare
-  Worker pattern (`omicidx-etl/worker/`, built for the legacy bucket); ADR-0004.
+  `get_public_parquet_path`; `duckdb-build` (`sql.py:60-114`); the live Cloudflare
+  Worker (`omicidx-prefect/worker/`, `data-omicidx` bucket, route
+  `data.omicidx.cancerdatasci.org`); ADR-0004.
 - **Needs reshaping:** `parquet_export` is `latest/`-only, overwritten in place →
   add immutable dated `v{date}/` + retention pruning; `duckdb-build` uploads to
-  `PUBLISH_ROOT`, not the public bucket → redirect into the published bundle; the
-  Worker is wired to the legacy `omicidx` bucket, not `data-omicidx`.
+  `PUBLISH_ROOT`, not the public bucket → redirect into the published bundle.
 - **Missing:** retaining file-catalog generation (read-only file-based DuckLake
   catalog carrying snapshot lineage); the bundle manifest (§2a — the primitive
   that makes time travel attestable); dated-folder retention/pruning;
