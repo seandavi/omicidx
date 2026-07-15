@@ -110,17 +110,13 @@ Long-running extraction jobs that write Parquet/NDJSON to S3-compatible storage.
 - `omicidx.etl.geo` — fetches GEO SOFT files, writes NDJSON to partitioned paths
 - `omicidx.etl.biosample` — streams BioSample XML, writes JSONL.gz
 - `omicidx.etl.etl.pubmed` — downloads PubMed baseline + updates → Parquet
-- `omicidx.etl.sql` — DuckDB SQL runner; SQL files are bundled as package data in `omicidx/etl/sql/*.sql`
-- `omicidx.etl.build_db` — assembles the DuckDB database from Parquet via the view SQL files
+
+Only the unported extractors (europepmc, icite, nih_reporter) are still
+exclusive to this package; sra/geo/biosample/pubmed are superseded by
+omicidx-prefect but still present. The DuckDB SQL runner + `build-db` transform
+path was retired 2026-07 (transform now lives in omicidx-prefect / SQLMesh).
 
 Configuration is via `omicidx.etl.config.Settings` (pydantic-settings), loaded from environment or `.env`. Key variable: `PUBLISH_DIRECTORY` (default `/data/omicidx`, supports S3 URIs via `universal-pathlib`).
-
-### SQL layer (ETL)
-
-SQL files in `packages/omicidx-etl/src/omicidx/etl/sql/` define a two-stage DuckDB pipeline:
-
-- `010_raw_to_parquet.sql` — raw data consolidation (run via `oidx sql run`)
-- `020_`–`050_*.sql` — view definitions (`src_*`, `stg_*`, `geometadb.*`, `sradb.*`) built by `oidx build-db`
 
 ### omicidx-prefect
 
@@ -194,3 +190,9 @@ AWS_ENDPOINT_URL=...        # for S3-compatible stores (Cloudflare R2, etc.)
 AWS_URL_STYLE=path
 AWS_REGION=...
 ```
+
+omicidx-prefect's `docker-compose.yml` hardcodes the container-side
+`DUCKLAKE_URI` (`host=pg_main`) and interpolates only the secret via
+`DUCKLAKE_PG_PASSWORD`, which must be set in the gitignored repo-root `.env`
+(symlinked into the package). If unset it interpolates empty and the catalog
+connection fails — see [[reference_ducklake_uri_host_split]].
