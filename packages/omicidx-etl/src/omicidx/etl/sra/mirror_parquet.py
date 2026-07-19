@@ -14,7 +14,7 @@ from collections.abc import Callable, Iterable
 from xml.etree.ElementTree import ParseError
 
 from loguru import logger
-from omicidx.parsers.sra.parser import sra_object_generator
+from omicidx.parsers.sra.parser import iter_sra_records
 from upath import UPath
 
 from .schema import get_pyarrow_schema
@@ -34,8 +34,7 @@ def iter_sra_record_dicts_from_mirror_url(url: str) -> Iterable[dict]:
     """
     up = UPath(url)
     with up.open("rb") as f_in, gzip.GzipFile(fileobj=f_in, mode="rb") as gz:
-        for obj in sra_object_generator(gz):
-            yield obj.data
+        yield from iter_sra_records(gz)
 
 
 def process_mirror_entry_to_parquet_parts(
