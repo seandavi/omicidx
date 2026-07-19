@@ -1,6 +1,7 @@
 """Offline unit tests for SRA XML parser functions using inline XML fixtures."""
 
 import xml.etree.ElementTree as ET
+from io import BytesIO
 
 import pytest
 from omicidx.parsers.sra import parser as sra_parser
@@ -235,6 +236,42 @@ def test_model_from_single_xml_study():
     model = sra_parser.model_from_single_xml(STUDY_XML)
     assert isinstance(model, SraStudy)
     assert model.accession == "SRP000001"
+
+
+# ---------------------------------------------------------------------------
+# iter_sra_records: streaming dispatch by tag
+# ---------------------------------------------------------------------------
+
+
+def _stream(xml_text: str):
+    return list(sra_parser.iter_sra_records(BytesIO(xml_text.encode("utf-8"))))
+
+
+def test_iter_sra_records_yields_dicts_per_element():
+    doc = f"<STUDY_SET>{STUDY_XML}{STUDY_XML}</STUDY_SET>"
+    records = _stream(doc)
+    assert len(records) == 2
+    assert all(isinstance(r, dict) for r in records)
+    assert {r["accession"] for r in records} == {"SRP000001"}
+
+
+def test_iter_sra_records_mixed_entities_in_document_order():
+    doc = f"<SET>{STUDY_XML}{SAMPLE_XML}{RUN_XML}</SET>"
+    accessions = [r["accession"] for r in _stream(doc)]
+    assert accessions == ["SRP000001", "SRS000001", "SRR000001"]
+
+
+def test_iter_sra_records_skips_unknown_tags():
+    # Non-record elements (and the wrapping SET) are ignored, not crashed on.
+    assert _stream("<SET><FOO><BAR/></FOO></SET>") == []
+
+
+def test_sra_object_generator_backcompat_data_attr():
+    # Deprecated shim still exposes parsed dicts via `.data`.
+    doc = f"<STUDY_SET>{STUDY_XML}</STUDY_SET>"
+    objs = list(sra_parser.sra_object_generator(BytesIO(doc.encode("utf-8"))))
+    assert len(objs) == 1
+    assert objs[0].data["accession"] == "SRP000001"
 
 
 # ---------------------------------------------------------------------------

@@ -8,8 +8,9 @@
 These parsers each parse XML format files of the format
 available from the fullxml api.
 
-The main entry point into this module is the `parse_xml_file`
-function.
+The main streaming entry point is `iter_sra_records`, which yields one
+parsed dict per record element. `parse_xml_file` / `parse_xml_url` are
+thin file/URL adapters over it.
 
 """
 
@@ -28,45 +29,41 @@ from . import pydantic_models
 logger = logging.getLogger(__name__)
 
 
-def parse_xml_url(url: str, entity: str, gz: bool = True):
-    n = 0
+def parse_xml_url(url: str, entity: str | None = None, gz: bool = True):
+    """Fetch an SRA XML document over HTTP and yield parsed record dicts.
 
+    Thin fetch adapter over :func:`iter_sra_records`. Records are dispatched by
+    XML tag; ``entity`` is accepted for backward compatibility but no longer
+    used (dispatch is by tag).
+    """
     resp = httpx.get(url, timeout=120, follow_redirects=True)
     resp.raise_for_status()
-    with gzip.open(BytesIO(resp.content), "rb") as f:
-        for event, element in etree.iterparse(f):
-            if event == "end" and element.tag == entity:
-                rec = globals()["SRA" + entity.title() + "Record"](element).data
-                n += 1
-                if (n % 100000) == 0:
-                    logger.info(f"parsed {entity} {n} entries")
-                element.clear()
-                yield (rec)
-    logger.info(f"parsed {n} entity entries")
+    content = BytesIO(resp.content)
+    with gzip.open(content, "rb") if gz else content as f:
+        yield from iter_sra_records(f)
 
 
 def parse_xml_file(xmlfilename):
-    """Parse an NCBI SRA mirroring XML file
+    """Parse an NCBI SRA mirroring XML file into an iterator of record dicts.
 
-    This function returns an iterator over the
-    records in the xml file, returning a dict
-    of parsed records.
+    Thin file adapter over :func:`iter_sra_records`: opens the file
+    (transparently gunzipping ``.gz``) and yields one parsed dict per
+    STUDY / SAMPLE / RUN / EXPERIMENT / SUBMISSION element. The entity type is
+    detected from the XML tags, so the filename no longer needs to encode it.
 
     For example:
 
     wget --mirror -nH --cut-dirs=3 ftp://ftp.ncbi.nlm.nih.gov/sra/reports/Mirroring/NCBI_SRA_Mirroring_20181027/
 
-    >>> import omicidx.parsers.sra_parsers as sp
+    >>> import omicidx.parsers.sra.parser as sp
     >>> studies = sp.parse_xml_file("NCBI_SRA_Mirroring_20181027/meta_study_set.xml.gz")
     >>> next(studies)
     ...
 
-
     Parameters
     ----------
     xmlfilename : string
-        the filename to be parsed. Can be gzipped. Must include
-        the "entity" name in the filename (eg., "run", "experiment")
+        the filename to be parsed. Can be gzipped.
 
     Returns
     -------
@@ -74,32 +71,9 @@ def parse_xml_file(xmlfilename):
         An iterator of dict records from parsing each xml record.
 
     """
-    if "study" in xmlfilename:
-        entity = "STUDY"
-        sra_parser = SRAStudyRecord
-    elif "run" in xmlfilename:
-        entity = "RUN"
-        sra_parser = SRARunRecord
-    elif "sample" in xmlfilename:
-        entity = "SAMPLE"
-        sra_parser = SRASampleRecord
-    elif "experiment" in xmlfilename:
-        entity = "EXPERIMENT"
-        sra_parser = SRAExperimentRecord
-    else:
-        raise ValueError(f"Cannot infer SRA entity type from filename: {xmlfilename}")
-    n = 0
     open_func = gzip.open if xmlfilename.endswith(".gz") else open
     with open_func(xmlfilename) as f:
-        for event, element in etree.iterparse(f):
-            if event == "end" and element.tag == entity:
-                rec = sra_parser(element).data
-                n += 1
-                if (n % 100000) == 0:
-                    logger.info(f"parsed {entity} {n} entries")
-                element.clear()
-                yield (rec)
-    logger.info(f"parsed {n} entity entries")
+        yield from iter_sra_records(f)
 
 
 def parse_study(xml: etree.Element) -> dict:
@@ -168,18 +142,18 @@ def parse_submission(xml: etree.Element) -> dict:
 
 
 def dict_from_single_xml(txt):
+    """Parse a single standalone SRA XML string into a dict (tag-dispatched)."""
     xml = etree.fromstring(txt)
-    entity = xml.tag.lower()
-    vals = globals()["parse_" + entity](xml)
+    vals = _parse_element(xml)
     vals["entity_type"] = xml.tag.lower()
     return vals
 
 
 def model_from_single_xml(txt):
+    """Parse a single standalone SRA XML string into a pydantic model."""
     xml = etree.fromstring(txt)
     entity = xml.tag.lower()
-    et = globals()["parse_" + entity](xml)
-    return getattr(pydantic_models, "Sra" + entity.capitalize())(**et)
+    return getattr(pydantic_models, "Sra" + entity.capitalize())(**_parse_element(xml))
 
 
 def parse_run(xml: etree.Element) -> dict:
@@ -671,78 +645,78 @@ def try_update(d: dict, value) -> dict:
         return d
 
 
-class SRAXMLRecord:
-    def __init__(self, xml):
-        # if(type(xml) is not xml.etree.ElementTree.Element):
-        #    raise(TypeError('xml should be of type xml.etree.ElementTree.Element'))
-        self.xml = xml
-        self.parse_xml()
-
-    def parse_xml(self):
-        self.data = dict(self.xml.attrib)
-
-
-class SRAExperimentRecord(SRAXMLRecord):
-    def __init__(self, xml):
-        super().__init__(xml)
-
-    def parse_xml(self):
-        """Parse an SRA xml EXPERIMENT element"""
-        xml = self.xml
-        self.data = parse_experiment(xml)
+# ---------------------------------------------------------------------------
+# Entity dispatch: one table (XML tag -> pure parse function) replaces the
+# scattered globals()/filename-substring/dict dispatch mechanisms.
+# ---------------------------------------------------------------------------
+_ENTITY_PARSERS = {
+    "STUDY": parse_study,
+    "SAMPLE": parse_sample,
+    "RUN": parse_run,
+    "EXPERIMENT": parse_experiment,
+    "SUBMISSION": parse_submission,
+}
 
 
-class SRAStudyRecord(SRAXMLRecord):
-    def __init__(self, xml):
-        super().__init__(xml)
-
-    def parse_xml(self):
-        self.data = parse_study(self.xml)
-
-
-class SRASampleRecord(SRAXMLRecord):
-    def __init__(self, xml):
-        super().__init__(xml)
-
-    def parse_xml(self):
-        self.data = parse_sample(self.xml)
+def _parse_element(element: etree.Element) -> dict:
+    """Dispatch one SRA element to its parser by tag; raise on unknown tags."""
+    parse = _ENTITY_PARSERS.get(element.tag.upper())
+    if parse is None:
+        raise ValueError(f"No SRA parser for element tag: {element.tag!r}")
+    return parse(element)
 
 
-class SRASubmissionRecord(SRAXMLRecord):
-    def __init__(self, xml):
-        super().__init__(xml)
+def iter_sra_records(fileobj):
+    """Stream parsed SRA records from an open XML file object.
 
-    def parse_xml(self):
-        self.data = parse_submission(self.xml)
+    The single streaming entry point for SRA XML (NCBI fullxml API output and
+    the mirroring ``meta_*_set`` files). Yields one dict per STUDY / SAMPLE /
+    RUN / EXPERIMENT / SUBMISSION element, dispatched by tag; elements with any
+    other tag are ignored.
+
+    Parameters
+    ----------
+    fileobj:
+        An open binary file-like object of SRA XML (e.g. an already-gunzipped
+        stream). Parsed incrementally via ``iterparse``.
+
+    Yields
+    ------
+    dict
+        One parsed record per recognized element.
+    """
+    n = 0
+    for event, element in etree.iterparse(fileobj):
+        if event != "end":
+            continue
+        parse = _ENTITY_PARSERS.get(element.tag.upper())
+        if parse is None:
+            continue
+        rec = parse(element)
+        element.clear()
+        n += 1
+        if (n % 100000) == 0:
+            logger.info(f"parsed {n} SRA records")
+        yield rec
+    logger.info(f"parsed {n} SRA records")
 
 
-class SRARunRecord(SRAXMLRecord):
-    def __init__(self, xml):
-        super().__init__(xml)
+class SraRecord:
+    """Back-compat wrapper exposing a parsed record dict as ``.data``.
 
-    def parse_xml(self):
-        self.data = parse_run(self.xml)
+    Retained only for :func:`sra_object_generator`; new code should use
+    :func:`iter_sra_records`, which yields dicts directly.
+    """
+
+    def __init__(self, data: dict):
+        self.data = data
 
 
 def sra_object_generator(fh):
-    """Iterate over objects in an SRA meta_XXX_set xml file
+    """Deprecated: iterate SRA objects exposing parsed data via ``.data``.
 
-    :param: fh an open filehandle
-
-    :returns: An iterator over SRA objects. Access actual data
-        as a dict using Object.data
-
+    Prefer :func:`iter_sra_records`, which yields the dicts directly. Kept as a
+    thin shim so existing callers of the ``.data`` contract keep working.
     """
-    from xml.etree import ElementTree as et
-
-    parsers = {
-        "study": SRAStudyRecord,
-        "sample": SRASampleRecord,
-        "run": SRARunRecord,
-        "experiment": SRAExperimentRecord,
-    }
-    validClasses = ["experiment", "run", "study", "sample"]
-    for event, element in et.iterparse(fh):
-        if (element.tag.lower() in validClasses) and (event == "end"):
-            yield parsers.get(element.tag.title().lower())(element)
-            element.clear()
+    for rec in iter_sra_records(fh):
+        yield SraRecord(rec)

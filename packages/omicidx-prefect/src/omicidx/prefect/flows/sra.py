@@ -15,7 +15,7 @@ from functools import lru_cache
 
 import pyarrow as pa
 import pyarrow.parquet as pq
-from omicidx.parsers.sra.parser import sra_object_generator
+from omicidx.parsers.sra.parser import iter_sra_records
 from omicidx.prefect.config import get_upath
 from omicidx.prefect.semaphore import SemaphoreStore
 from omicidx.prefect.source import run_extraction
@@ -253,8 +253,7 @@ def _partition_key(entry: dict) -> str:
 def _iter_records_from_url(url: str):
     up = UPath(url)
     with up.open("rb") as f_in, gzip.GzipFile(fileobj=f_in, mode="rb") as gz:
-        for obj in sra_object_generator(gz):
-            yield obj.data
+        yield from iter_sra_records(gz)
 
 
 def _write_parquet_chunks(
