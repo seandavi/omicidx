@@ -109,6 +109,16 @@ def test_iter_soft_entities_empty_text():
 # ---------------------------------------------------------------------------
 
 
+def test_relations_matching_filters_and_strips_leading_prefix():
+    rels = ["p:a", "p:b", "other:c"]
+    assert geo_parser.relations_matching(rels, "p:") == ["a", "b"]
+
+
+def test_relations_matching_strips_only_leading_occurrence():
+    # A prefix recurring later in the value is left intact.
+    assert geo_parser.relations_matching(["p:x-p:y"], "p:") == ["x-p:y"]
+
+
 def test_get_subseries_from_relations():
     rels = [
         "SuperSeries of: GSE111",

@@ -222,40 +222,35 @@ def get_geo_entities(txt):
 #####################################
 
 
+def relations_matching(relation_list: list[str], prefix: str) -> list[str]:
+    """Return relations starting with `prefix`, with that prefix stripped.
+
+    The single implementation behind the per-type `get_*_from_relations`
+    helpers; each of those just supplies its prefix.
+    """
+    return [r.removeprefix(prefix) for r in relation_list if r.startswith(prefix)]
+
+
 def get_subseries_from_relations(relation_list: list[str]) -> list[str]:
-    ret = []
-    for i in relation_list:
-        if i.startswith("SuperSeries of:"):
-            ret.append(i.replace("SuperSeries of: ", ""))
-    return ret
+    return relations_matching(relation_list, "SuperSeries of: ")
 
 
 def get_bioprojects_from_relations(relation_list: list[str]) -> list[str]:
-    ret = []
-    for i in relation_list:
-        if i.startswith("BioProject: https://www.ncbi.nlm.nih.gov/bioproject/"):
-            ret.append(
-                i.replace("BioProject: https://www.ncbi.nlm.nih.gov/bioproject/", "")
-            )
-    return ret
+    return relations_matching(
+        relation_list, "BioProject: https://www.ncbi.nlm.nih.gov/bioproject/"
+    )
 
 
 def get_sra_from_relations(relation_list: list[str]) -> list[str]:
-    ret = []
-    for i in relation_list:
-        if i.startswith("SRA: https://www.ncbi.nlm.nih.gov/sra?term="):
-            ret.append(i.replace("SRA: https://www.ncbi.nlm.nih.gov/sra?term=", ""))
-    return ret
+    return relations_matching(
+        relation_list, "SRA: https://www.ncbi.nlm.nih.gov/sra?term="
+    )
 
 
 def get_biosample_from_relations(relation_list: list[str]) -> list[str]:
-    ret = []
-    for i in relation_list:
-        if i.startswith("BioSample: https://www.ncbi.nlm.nih.gov/biosample/"):
-            ret.append(
-                i.replace("BioSample: https://www.ncbi.nlm.nih.gov/biosample/", "")
-            )
-    return ret
+    return relations_matching(
+        relation_list, "BioSample: https://www.ncbi.nlm.nih.gov/biosample/"
+    )
 
 
 def get_channel_characteristics(d: dict, ch: int) -> dict:
