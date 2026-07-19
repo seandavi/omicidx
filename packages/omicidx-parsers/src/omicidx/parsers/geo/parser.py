@@ -505,47 +505,32 @@ def _parse_single_gpl_soft(d2):
 
 
 ###############################################################################
-#                   This is the main entrypoint for parsing.                  #
+#            Pure SOFT-text parse seam (no I/O — the test surface).           #
 ###############################################################################
-def geo_entity_iterator(geo: str, targ: str = "self", view: str = "brief"):
-    """Returns an iterator of GEO entities
+def iter_soft_entities(text: str):
+    """Parse GEO SOFT document text into an iterator of entity models.
 
-    Given a GEO accession (typically a GSE,
-    will return an iterator of the GEO entities
-    associated with the record, including all
-    GSMs, GPLs, and the GSE record itself
+    Pure: takes the full SOFT text for one or more entities and yields a
+    parsed pydantic model per recognized entity (GSE/GSM/GPL). Splits on
+    ``^`` entity markers, skips data tables and comments, and drops
+    unrecognized entity types (logged at debug level).
 
     Parameters
     ----------
-    fh: Iterable[str]
-       Anything that can iterate over lines of text
-       Could be a list of text lines, a file handle, or
-       an open url.
+    text: str
+        The full GEO SOFT document as text.
 
     Yields
     ------
-    Iterator of GEO entities as pydantic models
-
-
-    >>> for i in geo_soft_entity_iterator('GSE2553'):
-    ...     print(i)
+    Parsed GEO entity models (GEOSeries, GEOSample, GEOPlatform).
     """
-    entity = []
+    entity: list[str] = []
     accession = None
     in_table = False
-    logger.info(f"Getting GEO entities for {geo}")
-    text = get_geo_accession_soft(geo, targ=targ, view=view)
-    logger.info(f"Got GEO entities for {geo}")
     for line in StringIO(text):
-        try:
-            if isinstance(line, bytes):
-                line = line.decode()
-        except (AttributeError, UnicodeDecodeError):
-            pass
         line = line.strip()
 
         # ignore table details for now
-
         if line.endswith("table_begin"):
             in_table = True
         if line.endswith("table_end"):
@@ -555,19 +540,60 @@ def geo_entity_iterator(geo: str, targ: str = "self", view: str = "brief"):
             continue
 
         # ignore comments
-
         if line.startswith("#"):
             continue
 
         if line.startswith("^"):
             if accession is not None:
-                logger.info(f".. parsing found {accession}")
-                yield (_parse_single_entity_soft(entity))
+                yield from _emit_soft_entity(entity, accession)
             accession = _split_on_first_equal(line)[1]
             entity = []
 
         entity.append(line)
-    yield (_parse_single_entity_soft(entity))
+    if accession is not None:
+        yield from _emit_soft_entity(entity, accession)
+
+
+def _emit_soft_entity(entity_txt: list[str], accession):
+    """Parse one entity block, skipping (with a debug log) unknown types."""
+    model = _parse_single_entity_soft(entity_txt)
+    if model is not None:
+        yield model
+    else:
+        logger.debug("skipping unrecognized SOFT entity %s", accession)
+
+
+###############################################################################
+#                   This is the main entrypoint for parsing.                  #
+###############################################################################
+def geo_entity_iterator(geo: str, targ: str = "self", view: str = "brief"):
+    """Fetch a GEO accession's SOFT record and yield its entity models.
+
+    Thin fetch adapter over the pure :func:`iter_soft_entities` seam: fetches
+    the SOFT text over HTTP, then delegates all parsing.
+
+    Given a GEO accession (typically a GSE), returns an iterator of the GEO
+    entities associated with the record, including all GSMs, GPLs, and the
+    GSE record itself.
+
+    Parameters
+    ----------
+    geo: str
+        The GEO accession to fetch (e.g. "GSE2553").
+    targ, view: str
+        Passed through to the SOFT fetch (see get_geo_accession_soft).
+
+    Yields
+    ------
+    Iterator of GEO entities as pydantic models
+
+    >>> for i in geo_entity_iterator('GSE2553'):
+    ...     print(i)
+    """
+    logger.info(f"Getting GEO entities for {geo}")
+    text = get_geo_accession_soft(geo, targ=targ, view=view)
+    logger.info(f"Got GEO entities for {geo}")
+    yield from iter_soft_entities(text)
 
 
 def gse_to_json(gse):
