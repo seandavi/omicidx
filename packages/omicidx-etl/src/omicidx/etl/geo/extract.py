@@ -141,23 +141,20 @@ async def write_geo_entity_worker(
         ):
             async with entity_text_to_process_receive:
                 async for text in entity_text_to_process_receive:
-                    lines = [x.strip() for x in text.split("\n")]
-                    entity = gp._parse_single_entity_soft(lines)
-                    if entity is None:
-                        continue
-                    if entity.accession.startswith("GSE"):  # type: ignore
-                        gse_tmp_write.write(
-                            entity.model_dump_json().encode("utf-8") + b"\n"
-                        )  # type: ignore
-                    elif entity.accession.startswith("GSM"):  # type: ignore
-                        gsm_tmp_write.write(
-                            entity.model_dump_json().encode("utf-8") + b"\n"
-                        )  # type: ignore
-                    elif entity.accession.startswith("GPL"):  # type: ignore
-                        gpl_tmp_write.write(
-                            entity.model_dump_json().encode("utf-8") + b"\n"
-                        )  # type: ignore
-                    record_counts[entity.accession[:3]] += 1  # type: ignore
+                    for entity in gp.iter_soft_entities(text):
+                        if entity.accession.startswith("GSE"):
+                            gse_tmp_write.write(
+                                entity.model_dump_json().encode("utf-8") + b"\n"
+                            )
+                        elif entity.accession.startswith("GSM"):
+                            gsm_tmp_write.write(
+                                entity.model_dump_json().encode("utf-8") + b"\n"
+                            )
+                        elif entity.accession.startswith("GPL"):
+                            gpl_tmp_write.write(
+                                entity.model_dump_json().encode("utf-8") + b"\n"
+                            )
+                        record_counts[entity.accession[:3]] += 1
 
         # Always write all three files, even if empty.
         # This ensures the skip guard in geo_metadata_by_date (which checks

@@ -135,9 +135,7 @@ async def _fetch_and_parse(
     async def _one(acc: str, client: httpx.AsyncClient) -> None:
         async with semaphore:
             text = await _fetch_soft(acc, client)
-            lines = [x.strip() for x in text.split("\n")]
-            entity = gp._parse_single_entity_soft(lines)
-            if entity is not None:
+            for entity in gp.iter_soft_entities(text):
                 prefix = entity.accession[:3]
                 if prefix in results:
                     results[prefix].append(entity.model_dump())

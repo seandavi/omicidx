@@ -1,7 +1,18 @@
 """Offline unit tests for GEO SOFT parser internal functions."""
 
+from collections import Counter
+from pathlib import Path
+
 import pytest
 from omicidx.parsers.geo import parser as geo_parser
+from omicidx.parsers.geo import pydantic_models
+
+FIXTURE_DIR = Path(__file__).parent / "fixtures"
+
+
+def _load_soft(name: str) -> str:
+    return (FIXTURE_DIR / name).read_text()
+
 
 # ---------------------------------------------------------------------------
 # _split_on_first_equal
@@ -56,6 +67,41 @@ def test_get_geo_entities_values_are_lists():
     result = geo_parser.get_geo_entities(lines)
     assert isinstance(result["GSE2553"], list)
     assert isinstance(result["GSM12345"], list)
+
+
+# ---------------------------------------------------------------------------
+# iter_soft_entities — full offline parse over a captured SOFT document
+# ---------------------------------------------------------------------------
+
+
+def test_iter_soft_entities_accessions():
+    entities = list(geo_parser.iter_soft_entities(_load_soft("GSE10.soft")))
+    accessions = [e.accession for e in entities]
+    assert accessions == ["GSE10", "GPL4", "GSM571", "GSM572", "GSM573", "GSM574"]
+
+
+def test_iter_soft_entities_types():
+    entities = list(geo_parser.iter_soft_entities(_load_soft("GSE10.soft")))
+    types = Counter(type(e).__name__ for e in entities)
+    assert types == {"GEOSample": 4, "GEOSeries": 1, "GEOPlatform": 1}
+    assert isinstance(entities[0], pydantic_models.GEOSeries)
+
+
+def test_iter_soft_entities_parses_fields():
+    entities = list(geo_parser.iter_soft_entities(_load_soft("GSE10.soft")))
+    series = entities[0]
+    assert series.accession == "GSE10"
+    assert series.title == "eye-SAGE"
+
+
+def test_iter_soft_entities_skips_unknown_type():
+    # An entity type that is not SERIES/SAMPLE/PLATFORM is silently skipped.
+    text = "^DATABASE = GeoDB\n!Database_name = foo\n"
+    assert list(geo_parser.iter_soft_entities(text)) == []
+
+
+def test_iter_soft_entities_empty_text():
+    assert list(geo_parser.iter_soft_entities("")) == []
 
 
 # ---------------------------------------------------------------------------

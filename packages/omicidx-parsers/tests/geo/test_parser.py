@@ -39,9 +39,12 @@ def test_get_geo_entities():
 
 
 def test_geo_entity_iterator():
-    i = parser.geo_entity_iterator(TEST_GSE, targ="all")
-    n = 0
-    for j in i:
-        n += 1
-        isinstance(j, pydantic.BaseModel)
-    assert n == 6  # should be six entities in TEST_GSE
+    """Smoke-test the fetch adapter end-to-end over the network.
+
+    Parse detail (counts, entity types, fields) is covered offline against a
+    captured fixture in test_geo_soft_parsers.py; here we only prove the
+    fetch adapter reaches NCBI and yields parseable models.
+    """
+    entities = list(parser.geo_entity_iterator(TEST_GSE, targ="all"))
+    assert len(entities) >= 1
+    assert all(isinstance(e, pydantic.BaseModel) for e in entities)
