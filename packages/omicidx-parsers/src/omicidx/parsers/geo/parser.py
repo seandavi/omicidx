@@ -1,9 +1,9 @@
-"""Usage
+"""GEO SOFT parsing.
 
-Common use will be to get a list of accessions using:
-
-
-
+Fetch and parse a GEO accession with `geo_entity_iterator`, or parse SOFT
+text you already have with the pure `iter_soft_entities`. Typed accessions
+(SRA, BioProject, BioSample, subseries) are pulled from a record's
+`relation` list with `relations_matching`.
 """
 
 import collections
