@@ -20,7 +20,7 @@ from omicidx.prefect.flows.biosample import (
 )
 from omicidx.prefect.flows.ducklake_load import ducklake_load_flow
 from omicidx.prefect.flows.ebi_biosample import ebi_biosample_extract_flow
-from omicidx.prefect.flows.geo import geo_extract_flow, geo_rna_seq_counts_flow
+from omicidx.prefect.flows.geo import geo_rna_seq_counts_flow
 from omicidx.prefect.flows.parquet_export import parquet_export_flow
 from omicidx.prefect.flows.postgres import postgres_load_flow
 from omicidx.prefect.flows.publish_bundle import publish_bundle_flow
@@ -37,7 +37,12 @@ def raw_extract_flow(force: bool = False) -> None:
     biosample_extract_flow(force=force)
     bioproject_extract_flow(force=force)
     sra_extract_flow(force=force)
-    geo_extract_flow(force=force)
+    # ponytail: geo-extract is deliberately absent. It wedges on 2020-07 and
+    # held the whole pipeline in `Running` from 2026-08-08, so every stage
+    # below it — including the publish — has not run for a month. Four healthy
+    # domains flowing beats five domains blocked. GEO returns as its own
+    # scheduled EL process (#154), not here; ad-hoc runs still work via the
+    # `geo-extract` deployment and `omicidx-prefect run geo-extract`.
     geo_rna_seq_counts_flow()
     ebi_biosample_extract_flow(force=force)
     pubmed_extract_flow(force=force)
