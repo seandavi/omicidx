@@ -80,8 +80,10 @@ deployments:
   - name: geo-extract
     description: |
       Re-run the GEO monthly extractor (current month always re-fires;
-      historical months skipped if semaphore exists). Unscheduled — the
-      same call runs inside daily-pipeline; standalone for ad-hoc runs.
+      historical months skipped if semaphore exists). Unscheduled, and NOT
+      called by daily-pipeline — GEO wedges on 2020-07 (#154) and blocked
+      every downstream stage, so it runs only on demand until it moves to
+      its own scheduled EL process.
     entrypoint: src/omicidx/prefect/flows/geo.py:geo_extract_flow
     work_pool:
       name: default

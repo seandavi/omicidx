@@ -22,3 +22,6 @@ node_modules/
 .idea/
 
 /.claude/handoffs/
+
+# agent worktrees created by the Claude Code harness
+.claude/worktrees/
