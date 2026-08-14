@@ -37,7 +37,8 @@ Invariants that follow from the finalized decisions:
 
 ## Repo structure
 
-This is a **uv workspace** consolidating four packages:
+This is a **uv workspace** consolidating four packages (`omicidx-dagster` was
+retired 2026-07; Prefect is the sole orchestrator):
 
 ```
 omicidx/                        # workspace root (no package of its own)
@@ -46,11 +47,9 @@ omicidx/                        # workspace root (no package of its own)
 └── packages/
     ├── omicidx-parsers/        # XML parsers + Pydantic models for NCBI SRA, GEO, BioSample
     │   └── src/omicidx/parsers/
-    ├── omicidx-etl/            # ETL pipelines that extract raw data to S3/R2 as Parquet
-    │   └── src/omicidx/etl/
-    ├── omicidx-dagster/        # Dagster code location for ETL orchestration + postgres loads
-    │   └── src/omicidx/dagster/
-    ├── omicidx-prefect/        # Prefect 3 reimplementation of the ETL pipeline (DuckLake)
+    ├── omicidx-etl/            # Legacy `oidx` extractors (NCBI→raw). Superseded by
+    │   └── src/omicidx/etl/    #   omicidx-prefect except europepmc/icite/nih_reporter (unported)
+    ├── omicidx-prefect/        # Prefect 3 pipeline (DuckLake) — the sole live orchestrator
     │   └── src/omicidx/prefect/
     └── omicidx-api/            # Read-only FastAPI REST API backed by PostgreSQL
         └── src/omicidx/api/
@@ -111,23 +110,19 @@ Long-running extraction jobs that write Parquet/NDJSON to S3-compatible storage.
 - `omicidx.etl.geo` — fetches GEO SOFT files, writes NDJSON to partitioned paths
 - `omicidx.etl.biosample` — streams BioSample XML, writes JSONL.gz
 - `omicidx.etl.etl.pubmed` — downloads PubMed baseline + updates → Parquet
-- `omicidx.etl.sql` — DuckDB SQL runner; SQL files are bundled as package data in `omicidx/etl/sql/*.sql`
-- `omicidx.etl.build_db` — assembles the DuckDB database from Parquet via the view SQL files
+
+Only the unported extractors (europepmc, icite, nih_reporter) are still
+exclusive to this package; sra/geo/biosample/pubmed are superseded by
+omicidx-prefect but still present. The DuckDB SQL runner + `build-db` transform
+path was retired 2026-07 (transform now lives in omicidx-prefect / SQLMesh).
 
 Configuration is via `omicidx.etl.config.Settings` (pydantic-settings), loaded from environment or `.env`. Key variable: `PUBLISH_DIRECTORY` (default `/data/omicidx`, supports S3 URIs via `universal-pathlib`).
 
-### SQL layer (ETL)
-
-SQL files in `packages/omicidx-etl/src/omicidx/etl/sql/` define a two-stage DuckDB pipeline:
-
-- `010_raw_to_parquet.sql` — raw data consolidation (run via `oidx sql run`)
-- `020_`–`050_*.sql` — view definitions (`src_*`, `stg_*`, `geometadb.*`, `sradb.*`) built by `oidx build-db`
-
 ### omicidx-prefect
 
-Prefect 3 reimplementation of the omicidx-dagster pipeline on the DuckLake
-substrate. Partition state lives in **semaphore JSON files** in the storage
-bucket (not Dagster's event log). Pipeline:
+Prefect 3 pipeline on the DuckLake substrate — the sole live orchestrator
+(reimplements the retired omicidx-dagster pipeline). Partition state lives in
+**semaphore JSON files** in the storage bucket. Pipeline:
 
 ```
 raw-extract → ducklake-load → transform → parquet-export → postgres-load → duckdb-build
@@ -159,31 +154,29 @@ Read-only REST API for entity lookups, deployed at `api-omicidx.cancerdatasci.or
 
 Configuration via `OMICIDX_API_DATABASE_URL` (standard `postgresql://` URI, `+asyncpg` added internally).
 
-### omicidx-dagster
-
-Dagster code location orchestrating ETL pipelines. See `packages/omicidx-dagster/` for details. Key resources:
-
-- `OmicidxStorage` — R2/S3 paths via UPath (`get_upath()`) or DuckDB (`get_duckdb_path()`)
-- `DuckDBResource` — DuckDB connections with R2 credentials
-- `PostgresResource` — PostgreSQL via `POSTGRES_URI` env var; provides `execute_sql()` (asyncpg DDL) and `attach()` (DuckDB postgres_scanner)
-
 ### Data flow
 
 ```
-NCBI FTP/API → omicidx-parsers (XML → Pydantic) → omicidx-dagster (→ Parquet on S3/R2)
+NCBI/EBI → omicidx-parsers (XML → Pydantic) → omicidx-prefect raw-extract (→ raw Parquet/NDJSON on R2)
                                                          ↓
-                                              DuckDB views (010–050 SQL)
+                                              ducklake-load (MERGE raw → lake.omicidx.*)
                                                          ↓
-                                         omicidx.duckdb (public data file)
+                                              transform (SQLMesh: src → stg → marts)
                                                          ↓
-                                              PostgreSQL (via Dagster assets)
+                                   parquet-export → public Parquet + frozen bundle + thin marts-only omicidx.duckdb
+                                                         ↓
+                                              postgres-load (A/B-slot swap)
                                                          ↓
                                          omicidx-api (FastAPI REST endpoints)
 ```
 
 ### GitHub Actions
 
-Workflows live in `packages/omicidx-etl/.github/workflows/` and run the ETL pipelines on a daily cron. AWS credentials and `PUBLISH_DIRECTORY` are injected as repository secrets.
+The only active workflow is root `.github/workflows/ci.yaml` (ruff + tests on
+push). The daily pipeline runs on the Prefect worker, not CI (deployments in
+`packages/omicidx-prefect/prefect.yaml`). The legacy `oidx`-based extraction and
+`build-db` cron workflows were retired 2026-07 when Prefect became the sole
+orchestrator.
 
 ## Environment / secrets
 
@@ -197,3 +190,9 @@ AWS_ENDPOINT_URL=...        # for S3-compatible stores (Cloudflare R2, etc.)
 AWS_URL_STYLE=path
 AWS_REGION=...
 ```
+
+omicidx-prefect's `docker-compose.yml` hardcodes the container-side
+`DUCKLAKE_URI` (`host=pg_main`) and interpolates only the secret via
+`DUCKLAKE_PG_PASSWORD`, which must be set in the gitignored repo-root `.env`
+(symlinked into the package). If unset it interpolates empty and the catalog
+connection fails — see [[reference_ducklake_uri_host_split]].

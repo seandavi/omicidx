@@ -1,8 +1,29 @@
 # OmicIDX Roadmap
 
 - **Status:** Active. Maintained alongside the paper outline and the ADRs.
-- **Last updated:** 2026-05-29
+- **Last updated:** 2026-07-15
 - **Owner:** Sean Davis
+
+## 2026-07-15 status update
+
+Substrate + serving mechanism have largely landed since this was last revised;
+the paper Tracks (A–D) below are otherwise unchanged. What shipped:
+
+- **Track C (internal DuckLake migration) — core done.** `lake.omicidx.*` is
+  live on the shared cdsci-lake Postgres catalog (data at `r2://cdsci-lake/`);
+  every source loads via copy-on-write MERGE; SQLMesh is the transform engine
+  (`src`→`stg`→`sradb.*`/`geometadb.*` marts). Prefect is the sole orchestrator.
+- **Track A (public snapshot) — mechanism built, not yet tagged v1.0.** The daily
+  frozen bundle publishes flat Parquet (`latest/` + immutable `v{date}/`), a
+  read-only `catalog.ducklake`, a thin marts-only `omicidx.duckdb`, `views.sql`,
+  and a provenance manifest at `https://data.omicidx.cancerdatasci.org` per
+  ADR-0004. The remaining Track A work is cutting/tagging the v1.0 snapshot and
+  documenting its row counts for §4.
+- **"Old Dagster/flat-Parquet writers retired from main"** (Track C acceptance) —
+  done 2026-07: omicidx-dagster and the legacy `oidx` CI crons removed.
+
+Not started: the API/client are optional, gated deliverables; external time
+travel is an earned unlock (spec Stage B′).
 
 ## Scope
 
