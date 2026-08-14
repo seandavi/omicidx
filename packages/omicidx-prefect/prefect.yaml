@@ -12,7 +12,8 @@
 #   - daily-pipeline:       02:00 UTC (full extract -> lake -> postgres -> build)
 #   - ducklake-maintenance: 04:00 UTC Sunday (cleanup + compact; no expiry — retention unbounded)
 #   - pubmed-extract:       hourly (poll FTP for new PubMed files)
-#   - geo-extract:          06:00 UTC daily (re-fire current month)
+#   (geo-extract has no schedule of its own — daily-pipeline already runs it
+#   with the same parameters; a second 06:00 firing only stacked on the first.)
 
 name: omicidx-prefect
 prefect-version: 3.0.0
@@ -79,15 +80,12 @@ deployments:
   - name: geo-extract
     description: |
       Re-run the GEO monthly extractor (current month always re-fires;
-      historical months skipped if semaphore exists).
+      historical months skipped if semaphore exists). Unscheduled — the
+      same call runs inside daily-pipeline; standalone for ad-hoc runs.
     entrypoint: src/omicidx/prefect/flows/geo.py:geo_extract_flow
     work_pool:
       name: default
       work_queue_name: default
-    schedules:
-      - cron: "0 6 * * *"
-        timezone: UTC
-        active: true
     parameters:
       rerun_current_month: true
       force: false
