@@ -43,7 +43,7 @@ def raw_extract_flow(force: bool = False) -> None:
     pubmed_extract_flow(force=force)
 
 
-@flow(name="daily-pipeline")
+@flow(name="daily-pipeline", timeout_seconds=36000)
 def daily_pipeline_flow(force: bool = False) -> None:
     """Daily pipeline: extract → ducklake-load → transform → parquet-export → postgres → publish.
 
@@ -53,6 +53,11 @@ def daily_pipeline_flow(force: bool = False) -> None:
     Parquet just written. ``publish-bundle`` builds omicidx.duckdb itself
     (Stage B2: duckdb-build output redirected into the bundle), so the old
     standalone ``omicidx-duckdb-build`` no longer runs inside the pipeline.
+
+    ``timeout_seconds=36000`` (10h): historical successful runs take
+    6.3-7h; a stall (e.g. a network call that hangs instead of erroring)
+    should fail loudly well before the 12h "stuck run" automation's
+    backstop, not sit blue in the UI indefinitely.
     """
     raw_extract_flow(force=force)
     ducklake_load_flow()
