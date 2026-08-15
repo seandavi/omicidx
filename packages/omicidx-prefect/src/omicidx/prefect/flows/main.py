@@ -15,7 +15,6 @@ verified in prod.
 """
 
 from omicidx.prefect.flows.ducklake_load import ducklake_load_flow
-from omicidx.prefect.flows.ebi_biosample import ebi_biosample_extract_flow
 from omicidx.prefect.flows.geo import geo_rna_seq_counts_flow
 from omicidx.prefect.flows.parquet_export import parquet_export_flow
 from omicidx.prefect.flows.postgres import postgres_load_flow
@@ -49,8 +48,14 @@ def raw_extract_flow(force: bool = False) -> None:
     # domains flowing beats five domains blocked. GEO returns as its own
     # scheduled EL process (#154), not here; ad-hoc runs still work via the
     # `geo-extract` deployment and `omicidx-prefect run geo-extract`.
+    # ponytail: ebi-biosample-extract is deliberately absent. It now runs on its
+    # own systemd timer (`systemd/omicidx-ebi-biosample-extract.timer`, daily
+    # 02:00 UTC); ad-hoc runs are
+    # `python -m omicidx.prefect.flows.ebi_biosample run` or
+    # `omicidx-prefect run ebi-biosample`. With it goes the last *extract*:
+    # `geo_rna_seq_counts_flow` below is a derived flow, not an extract, so
+    # where it belongs is #158's call, not this ticket's.
     geo_rna_seq_counts_flow()
-    ebi_biosample_extract_flow(force=force)
     # ponytail: pubmed-extract is deliberately absent. It now runs on its own
     # systemd timer (`systemd/omicidx-pubmed-extract.timer`, hourly, the cadence
     # its retired `pubmed-extract` deployment had); ad-hoc runs are

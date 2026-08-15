@@ -1,19 +1,27 @@
-"""EBI Biosample extract flow.
+"""EBI BioSample extract: a standalone scheduled EL process (#156, following #153).
 
 Partitions are calendar days (YYYY-MM-DD), starting at 2021-01-01. Each
 day gets a semaphore at `_semaphores/ebi_biosample/{YYYY-MM-DD}.json`,
 including empty days (legitimately many days have zero updates). The
-flow defaults to enumerating from the start date to today, processing
+extractor defaults to enumerating from the start date to today, processing
 only missing-semaphore days. The current day is always re-run.
+
+No orchestrator: run it as `python -m omicidx.prefect.flows.ebi_biosample run`
+(that is what `systemd/omicidx-ebi-biosample-extract.service` does), logs go to
+stdout -> journald, failures trip `OnFailure=ntfy-notify@%N.service`, and the
+semaphores are the per-partition ledger. The module path still says `prefect`
+only because the rename is #160.
 """
 
 import asyncio
 import gzip
+import logging
 import shutil
 import tempfile
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
+import click
 import httpx
 import orjson
 import tenacity
@@ -21,12 +29,17 @@ from omicidx.prefect.config import get_duckdb_connection, get_duckdb_path, get_u
 from omicidx.prefect.semaphore import SemaphoreStore
 from omicidx.prefect.source import run_extraction
 
-from prefect import flow, get_run_logger, task
-from prefect.task_runners import ThreadPoolTaskRunner
+log = logging.getLogger(__name__)
 
 EBI_BIOSAMPLES_BASE_URL = "https://www.ebi.ac.uk/biosamples/samples"
 EBI_PAGE_SIZE = 200
 EBI_REQUEST_TIMEOUT = 40.0
+
+#: Concurrent calendar days in flight. Was `ThreadPoolTaskRunner(max_workers=4)`
+#: — already threads, so this is a like-for-like swap onto the shared driver's
+#: pool: mechanism changed, load on the EBI BioSamples API unchanged. Each day
+#: is a cursor-paged HTTP crawl, i.e. IO-bound, so threads are the right pool.
+MAX_WORKERS = 4
 
 
 def _partition_filename(partition_date: date) -> str:
@@ -97,18 +110,14 @@ class _SampleFetcher:
         return count
 
 
-@task(
-    retries=2,
-    retry_delay_seconds=30,
-    task_run_name="ebi-biosample-extract-{key}",
-)
 def extract_ebi_biosample(key: str, force: bool = False) -> dict:
     """Extract one calendar-day partition of EBI BioSamples.
 
     The current day always re-extracts (updates accrue through the day); a past
-    day with a semaphore is skipped unless ``force``.
+    day with a semaphore is skipped unless ``force``. Retries are the driver's
+    (`run_extraction`), not this function's; the per-page HTTP retry below is
+    separate and stays.
     """
-    log = get_run_logger()
     sem = SemaphoreStore("ebi_biosample")
     # "Current day is volatile" is defined in two paired places: Ebi
     # BiosampleSource.list_partitions keeps it pending (always=[current]); this
@@ -174,10 +183,17 @@ def _enumerate_days(start: str = "2021-01-01", end: str | None = None) -> list[s
     return keys
 
 
-@task(retries=1, retry_delay_seconds=60)
 def consolidate_ebi_biosample_parquet() -> dict:
-    """Consolidate per-day NDJSON into a single parquet via DuckDB."""
-    log = get_run_logger()
+    """Consolidate per-day NDJSON into a single parquet via DuckDB.
+
+    ponytail: kept because removing it would change behaviour, not because
+    anything reads it — `ducklake_ebi_biosample.py` MERGEs from the raw NDJSON
+    glob, and the public `ebi_biosample.parquet` comes out of `parquet_export`
+    from the lake. Nothing in this repo consumes
+    `ebi_biosample/parquet/ebi_biosamples.parquet`. If that holds after #158
+    audits the downstream unit, delete this and pass `--no-consolidate` becomes
+    moot.
+    """
     input_glob = get_duckdb_path("ebi_biosample", "raw", "biosamples-*.ndjson.gz")
     output_path = get_duckdb_path("ebi_biosample", "parquet", "ebi_biosamples.parquet")
     sql = f"""
@@ -230,29 +246,67 @@ class EbiBiosampleSource:
         )
 
 
-@flow(
-    name="ebi-biosample-extract",
-    task_runner=ThreadPoolTaskRunner(max_workers=4),
-)
-def ebi_biosample_extract_flow(
+def ebi_biosample_extract(
     start_day: str = "2021-01-01",
     end_day: str | None = None,
     rerun_current_day: bool = True,
     force: bool = False,
     consolidate: bool = True,
-) -> None:
-    run_extraction(
+    max_workers: int = MAX_WORKERS,
+) -> list[dict]:
+    """Extract every calendar day whose semaphore is missing, plus today."""
+    results = run_extraction(
         EbiBiosampleSource(
             start_day=start_day,
             end_day=end_day,
             rerun_current_day=rerun_current_day,
         ),
         force=force,
+        max_workers=max_workers,
     )
 
     if consolidate:
         consolidate_ebi_biosample_parquet()
 
+    return results
+
+
+@click.group()
+def cli() -> None:
+    """EBI BioSample raw extraction (`python -m omicidx.prefect.flows.ebi_biosample run`)."""
+
+
+@cli.command("run")
+@click.option("--start-day", default="2021-01-01", show_default=True)
+@click.option("--end-day", default=None)
+@click.option("--force", is_flag=True, help="Re-extract every partition.")
+@click.option("--no-consolidate", is_flag=True, help="Skip the parquet rollup.")
+@click.option("--max-workers", default=MAX_WORKERS, show_default=True)
+def run_command(
+    start_day: str,
+    end_day: str | None,
+    force: bool,
+    no_consolidate: bool,
+    max_workers: int,
+) -> None:
+    """Extract every pending EBI BioSample day partition."""
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
+    )
+    results = ebi_biosample_extract(
+        start_day=start_day,
+        end_day=end_day,
+        force=force,
+        consolidate=not no_consolidate,
+        max_workers=max_workers,
+    )
+    extracted = [r for r in results if not r.get("skipped")]
+    rows = sum(r.get("row_count", 0) for r in extracted)
+    click.echo(
+        f"ebi_biosample: {len(extracted)} partitions extracted "
+        f"({len(results) - len(extracted)} skipped), {rows:,} rows"
+    )
+
 
 if __name__ == "__main__":
-    ebi_biosample_extract_flow()
+    cli()

@@ -139,6 +139,8 @@ raw-extract → ducklake-load → transform → parquet-export → postgres-load
 `flows/biosample.py` followed (#155) — one unit for **both** NCBI full dumps
 (BioSample + BioProject), `systemd/omicidx-biosample-extract.timer`; being
 unpartitioned, it calls its extracts directly instead of via `run_extraction`.
+`flows/pubmed.py` (#157, hourly) and `flows/ebi_biosample.py` (#156, daily 02:00
+UTC) followed the same way, both still fanning out through `run_extraction`.
 The shared driver `source.py` is orchestrator-neutral (bounded
 `ThreadPoolExecutor` + tenacity), so any domain not yet migrated keeps working
 unchanged until its own ticket (#154–#157) strips its decorators too.
