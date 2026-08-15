@@ -1,0 +1,37 @@
+# EBI BioSamples as a standalone scheduled EL process (#156), following the
+# pilot in omicidx-sra-extract.service (#153). Convention:
+# monode/infrastructure's SCHEDULING.md.
+#
+# The module path still says `prefect` and no Prefect is involved: the rename
+# is #160, which has to touch every unit file anyway.
+#
+# No Conflicts=: this is a cursor-paged HTTPS crawl of the EBI BioSamples API,
+# not an NCBI bulk download, so it contends with neither omicidx-sra-extract nor
+# omicidx-biosample-extract for the bandwidth those two fight over. It also sits
+# between them (02:00) precisely because it is the light one.
+[Unit]
+Description=Extract EBI BioSamples day partitions to raw NDJSON on R2
+Documentation=https://github.com/seandavi/omicidx/issues/156
+After=network-online.target
+Wants=network-online.target
+OnFailure=ntfy-notify@%N.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/davsean/Documents/git/omicidx
+EnvironmentFile=/home/davsean/Documents/git/omicidx/.env
+# NOT `/usr/bin/env uv` — systemd --user gives a minimal PATH
+# (/usr/local/bin:/usr/local/sbin:/usr/bin:/usr/sbin) that excludes ~/.local/bin,
+# where uv is installed, so `env uv` exits 127. `systemd-analyze verify` does NOT
+# catch it — only actually starting the unit does (#153).
+ExecStart=%h/.local/bin/uv run python -m omicidx.prefect.flows.ebi_biosample run
+# RuntimeMaxSec= silently has no effect on Type=oneshot — use TimeoutStartSec=.
+# An incremental night is one day partition (seconds) plus the DuckDB rollup over
+# ~2,000 NDJSON files (minutes). 6h is sized for a backfill night, where every
+# missing day since 2021-01-01 is crawled 4-wide; per-day semaphores make a
+# timeout resumable rather than wasted.
+TimeoutStartSec=21600
+Nice=10
+
+[Install]
+WantedBy=default.target

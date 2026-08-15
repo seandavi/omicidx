@@ -8,6 +8,7 @@ deployment artifacts. Convention (and the rationale for every field) lives in
 | Unit | Runs | Cadence |
 |---|---|---|
 | `omicidx-sra-extract` | `python -m omicidx.prefect.flows.sra run` | daily 01:00 UTC (+≤30m jitter) |
+| `omicidx-ebi-biosample-extract` | `python -m omicidx.prefect.flows.ebi_biosample run` | daily 02:00 UTC (+≤30m jitter) |
 | `omicidx-biosample-extract` | `python -m omicidx.prefect.flows.biosample run` | daily 04:00 UTC (+≤30m jitter) |
 | `omicidx-pubmed-extract` | `python -m omicidx.prefect.flows.pubmed run` | hourly (+≤5m jitter) |
 
@@ -15,6 +16,13 @@ deployment artifacts. Convention (and the rationale for every field) lives in
 BioProject) in one unit: same machinery, two URLs, both unpartitioned. It and
 `omicidx-sra-extract` are the two heavy jobs and `Conflicts=` each other — which
 *stops* the loser rather than queueing it, hence the three-hour gap.
+
+`omicidx-ebi-biosample-extract` declares no `Conflicts=` and sits between them:
+it crawls the EBI BioSamples HTTP API rather than pulling an NCBI bulk file, so
+it does not contend for the bandwidth the two heavy jobs fight over. Like SRA and
+BioSample it had no Prefect deployment of its own — it only ran inside
+`daily-pipeline` — so removing it from `raw_extract_flow` was the whole cutover;
+nothing to delete API-side.
 
 `ntfy-notify@.service` and `notify-failure.sh` are **not** duplicated here — the
 shared template installed from `cdsci-lake/systemd/` is what every
@@ -26,12 +34,14 @@ failed"; the failing unit name in the body is what identifies it.
 
 ```bash
 cp systemd/omicidx-sra-extract.{service,timer} ~/.config/systemd/user/
+cp systemd/omicidx-ebi-biosample-extract.{service,timer} ~/.config/systemd/user/
 cp systemd/omicidx-biosample-extract.{service,timer} ~/.config/systemd/user/
 cp systemd/omicidx-pubmed-extract.{service,timer} ~/.config/systemd/user/
 # once, shared, if not already present:
 cp ~/Documents/git/cdsci-lake/systemd/ntfy-notify@.service ~/.config/systemd/user/
 systemctl --user daemon-reload
 systemctl --user enable --now omicidx-sra-extract.timer
+systemctl --user enable --now omicidx-ebi-biosample-extract.timer
 systemctl --user enable --now omicidx-biosample-extract.timer
 systemctl --user enable --now omicidx-pubmed-extract.timer
 ```

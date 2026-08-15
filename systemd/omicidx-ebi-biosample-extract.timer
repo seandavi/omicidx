@@ -1,0 +1,17 @@
+[Unit]
+Description=Daily EBI BioSamples extraction (cadence preserved from daily-pipeline)
+
+[Timer]
+# Daily, the cadence daily-pipeline already ran at — #149 decided to change the
+# mechanism, not the rate. 02:00 is this domain's slot in the #153 staggering
+# (sra 01:00, ebi_biosample 02:00, biosample 04:00, geo 06:00; pubmed hourly).
+# The host is America/Denver, so UTC is explicit.
+OnCalendar=*-*-* 02:00:00 UTC
+RandomizedDelaySec=1800
+# A missed night (box off) catches up on next boot. Cheap if today's run already
+# succeeded: past days short-circuit on their semaphores, leaving only the
+# always-rerun current day.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

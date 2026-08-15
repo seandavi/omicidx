@@ -111,9 +111,9 @@ def run_pubmed(force: bool) -> None:
 @click.option("--end-day", default=None)
 @click.option("--force", is_flag=True)
 def run_ebi_biosample(start_day: str, end_day: str | None, force: bool) -> None:
-    from omicidx.prefect.flows.ebi_biosample import ebi_biosample_extract_flow
+    from omicidx.prefect.flows.ebi_biosample import ebi_biosample_extract
 
-    ebi_biosample_extract_flow(start_day=start_day, end_day=end_day, force=force)
+    ebi_biosample_extract(start_day=start_day, end_day=end_day, force=force)
 
 
 @run.command("consolidate")
