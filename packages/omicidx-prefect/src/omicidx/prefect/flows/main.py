@@ -42,12 +42,12 @@ def raw_extract_flow(force: bool = False) -> None:
     # EL process (#153) and now runs on its own systemd timer
     # (`systemd/omicidx-sra-extract.timer`); ad-hoc runs are
     # `python -m omicidx.prefect.flows.sra run` or `omicidx-prefect run sra`.
-    # ponytail: geo-extract is deliberately absent. It wedges on 2020-07 and
-    # held the whole pipeline in `Running` from 2026-08-08, so every stage
-    # below it — including the publish — has not run for a month. Four healthy
-    # domains flowing beats five domains blocked. GEO returns as its own
-    # scheduled EL process (#154), not here; ad-hoc runs still work via the
-    # `geo-extract` deployment and `omicidx-prefect run geo-extract`.
+    # ponytail: geo-extract is deliberately absent. It now runs on its own
+    # systemd timer (`systemd/omicidx-geo-extract.timer`, #154) — stacked
+    # concurrent runs of it were what held this pipeline in `Running` from
+    # 2026-08-08. Ad-hoc runs are `python -m omicidx.prefect.flows.geo run`
+    # or `omicidx-prefect run geo`. `geo_rna_seq_counts_flow` below is a
+    # separate, non-partitioned refresh and is not part of that migration.
     # ponytail: ebi-biosample-extract is deliberately absent. It now runs on its
     # own systemd timer (`systemd/omicidx-ebi-biosample-extract.timer`, daily
     # 02:00 UTC); ad-hoc runs are

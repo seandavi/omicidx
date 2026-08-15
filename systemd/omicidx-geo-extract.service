@@ -1,0 +1,39 @@
+# GEO monthly EL process (#154). Follows the pilot pattern set by
+# omicidx-sra-extract.service (#153); convention is monode/infrastructure's
+# SCHEDULING.md.
+#
+# The module path still says `prefect` and no Prefect is involved: the rename
+# is #160, which has to touch every unit file anyway.
+[Unit]
+Description=Extract GEO metadata (monthly partitions) to raw NDJSON on R2
+Documentation=https://github.com/seandavi/omicidx/issues/154
+After=network-online.target
+Wants=network-online.target
+OnFailure=ntfy-notify@%N.service
+# Deliberately NO Conflicts=. GEO is not bandwidth-heavy like sra/biosample
+# (it is tens of thousands of small acc.cgi requests, ~0.2 GB RSS); what it
+# cannot tolerate is *another copy of itself* on the same NCBI endpoint, and
+# Type=oneshot + systemd already guarantees one instance of this unit.
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/davsean/Documents/git/omicidx
+EnvironmentFile=/home/davsean/Documents/git/omicidx/.env
+# NOT `/usr/bin/env uv` — systemd --user gives a minimal PATH that excludes
+# ~/.local/bin, so `env uv` exits 127. `systemd-analyze verify` does not catch
+# it; only starting the unit does. See #153 / commit 9c4680a.
+ExecStart=%h/.local/bin/uv run python -m omicidx.prefect.flows.geo run
+# RuntimeMaxSec= silently has no effect on Type=oneshot — use TimeoutStartSec=.
+#
+# Sizing, from measurement rather than guesswork (#154): one month is one
+# acc.cgi request per accession, ~62k for a 2020 month, and a single process
+# sustains ~43 req/s => ~22 min/month. An incremental night is one month (the
+# current one). But 74 months are still pending — GEO has never gotten past
+# 2020-07 — so the first nights are a backfill: 6h clears ~16 months, and
+# semaphores make the next night resume exactly where this one stopped. Five
+# or six nights to catch up, then it is a 20-minute job forever.
+TimeoutStartSec=21600
+Nice=10
+
+[Install]
+WantedBy=default.target

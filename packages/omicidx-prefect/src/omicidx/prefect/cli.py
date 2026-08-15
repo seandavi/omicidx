@@ -77,9 +77,9 @@ def run_sra(force: bool) -> None:
 @click.option("--end-month", default=None)
 @click.option("--force", is_flag=True)
 def run_geo(start_month: str, end_month: str | None, force: bool) -> None:
-    from omicidx.prefect.flows.geo import geo_extract_flow
+    from omicidx.prefect.flows.geo import geo_extract
 
-    geo_extract_flow(start_month=start_month, end_month=end_month, force=force)
+    geo_extract(start_month=start_month, end_month=end_month, force=force)
 
 
 @run.command("biosample")

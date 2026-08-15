@@ -11,8 +11,6 @@
 # Schedules:
 #   - daily-pipeline:       02:00 UTC (full extract -> lake -> postgres -> build)
 #   - ducklake-maintenance: 04:00 UTC Sunday (cleanup + compact; no expiry — retention unbounded)
-#   (geo-extract has no schedule of its own — daily-pipeline already runs it
-#   with the same parameters; a second 06:00 firing only stacked on the first.)
 #
 # Extracts are migrating off Prefect onto systemd --user timers (#149). The
 # `pubmed-extract` deployment is gone (#157): pubmed_extract is no longer a
@@ -20,6 +18,11 @@
 # `systemd/omicidx-pubmed-extract.timer`. Removing the block from this file does
 # NOT unregister the live schedule — that has to be deleted through the API (see
 # systemd/README.md).
+# The `geo-extract` deployment is gone too (#154): GEO runs on
+# `systemd/omicidx-geo-extract.timer` and its entrypoint symbol
+# `geo_extract_flow` no longer exists. It was never scheduled here, so nothing
+# to unregister — stacked *manual* runs of it were the wedge it got blamed for.
+# Ad-hoc is `omicidx-prefect run geo`.
 
 name: omicidx-prefect
 prefect-version: 3.0.0
@@ -72,21 +75,6 @@ deployments:
       - cron: "0 4 * * 0"
         timezone: UTC
         active: true
-
-  - name: geo-extract
-    description: |
-      Re-run the GEO monthly extractor (current month always re-fires;
-      historical months skipped if semaphore exists). Unscheduled, and NOT
-      called by daily-pipeline — GEO wedges on 2020-07 (#154) and blocked
-      every downstream stage, so it runs only on demand until it moves to
-      its own scheduled EL process.
-    entrypoint: src/omicidx/prefect/flows/geo.py:geo_extract_flow
-    work_pool:
-      name: default
-      work_queue_name: default
-    parameters:
-      rerun_current_month: true
-      force: false
 
   - name: parquet-export
     description: |
