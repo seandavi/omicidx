@@ -7,13 +7,15 @@ Follows the same pattern as bioproject_to_ducklake in ducklake.py:
   - `ops.run` records the load + self-attributes the DuckLake snapshot
 """
 
+import logging
+
 from cdsci.lake import ops
 from cdsci.lake.connect import upsert
 from omicidx.prefect.config import get_duckdb_path, get_lake_connection
 from omicidx.prefect.flows.ducklake import LAKE_SCHEMA
+from omicidx.prefect.run import retry, run_id
 
-from prefect import get_run_logger, task
-from prefect.runtime import flow_run
+log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Source SQL template — {path} is the only format token.
@@ -49,10 +51,9 @@ SELECT * EXCLUDE (rn) FROM (
 """
 
 
-@task(retries=1, retry_delay_seconds=60)
+@retry
 def biosample_to_ducklake(lake_schema: str = LAKE_SCHEMA) -> dict:
     """Upsert raw biosample JSONL → lake.<lake_schema>.biosample."""
-    log = get_run_logger()
     raw = get_duckdb_path("biosample", "raw", "data.jsonl.gz")
     source_sql = _BIOSAMPLE_SOURCE.format(path=raw)
     target = f"lake.{lake_schema}.biosample"
@@ -62,7 +63,7 @@ def biosample_to_ducklake(lake_schema: str = LAKE_SCHEMA) -> dict:
             con,
             source="biosample",
             target=target,
-            extra={"prefect_run_id": flow_run.get_id()},
+            extra={"run_id": run_id()},
         ) as r:
             r.rows = upsert(con, target, source_sql, key="accession")
         log.info(f"{target} now holds {r.rows:,} rows")

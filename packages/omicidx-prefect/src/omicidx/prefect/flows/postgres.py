@@ -10,6 +10,7 @@ reads the lake tables directly, independent of the public parquet export.
 """
 
 import asyncio
+import logging
 import re
 
 from omicidx.prefect.config import (
@@ -19,10 +20,11 @@ from omicidx.prefect.config import (
     postgres_async_uri,
 )
 from omicidx.prefect.flows.ducklake import LAKE_SCHEMA
+from omicidx.prefect.run import retry
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from prefect import flow, get_run_logger, task
+log = logging.getLogger(__name__)
 
 
 def _validate_sql_identifier(name: str) -> str:
@@ -121,7 +123,6 @@ def _load(
     connection that attaches the serving Postgres as `pg`) and inserts
     into the inactive A/B backing table, then swaps the public view.
     """
-    log = get_run_logger()
     table = _validate_sql_identifier(table)
     lake_ref = (
         f"lake.{_validate_sql_identifier(lake_schema)}"
@@ -537,7 +538,7 @@ FROM {lake_ref}
 # -- Tasks ---------------------------------------------------------------------
 
 
-@task(retries=1, retry_delay_seconds=60)
+@retry
 def bioproject_postgres() -> int:
     return _load(
         table="bioproject",
@@ -547,7 +548,7 @@ def bioproject_postgres() -> int:
     )
 
 
-@task(retries=1, retry_delay_seconds=60)
+@retry
 def biosample_postgres() -> int:
     return _load(
         table="biosample",
@@ -558,7 +559,7 @@ def biosample_postgres() -> int:
     )
 
 
-@task(retries=1, retry_delay_seconds=60)
+@retry
 def sra_study_postgres() -> int:
     return _load(
         table="sra_study",
@@ -569,7 +570,7 @@ def sra_study_postgres() -> int:
     )
 
 
-@task(retries=1, retry_delay_seconds=60)
+@retry
 def sra_sample_postgres() -> int:
     return _load(
         table="sra_sample",
@@ -580,7 +581,7 @@ def sra_sample_postgres() -> int:
     )
 
 
-@task(retries=1, retry_delay_seconds=60)
+@retry
 def sra_experiment_postgres() -> int:
     return _load(
         table="sra_experiment",
@@ -591,7 +592,7 @@ def sra_experiment_postgres() -> int:
     )
 
 
-@task(retries=1, retry_delay_seconds=60)
+@retry
 def sra_run_postgres() -> int:
     return _load(
         table="sra_run",
@@ -602,7 +603,7 @@ def sra_run_postgres() -> int:
     )
 
 
-@task(retries=1, retry_delay_seconds=60)
+@retry
 def geo_series_postgres() -> int:
     return _load(
         table="geo_series",
@@ -613,7 +614,7 @@ def geo_series_postgres() -> int:
     )
 
 
-@task(retries=1, retry_delay_seconds=60)
+@retry
 def geo_sample_postgres() -> int:
     return _load(
         table="geo_sample",
@@ -624,7 +625,7 @@ def geo_sample_postgres() -> int:
     )
 
 
-@task(retries=1, retry_delay_seconds=60)
+@retry
 def geo_platform_postgres() -> int:
     return _load(
         table="geo_platform",
@@ -634,7 +635,7 @@ def geo_platform_postgres() -> int:
     )
 
 
-@task(retries=1, retry_delay_seconds=60)
+@retry
 def pubmed_postgres() -> int:
     return _load(
         table="pubmed_article",
@@ -645,8 +646,7 @@ def pubmed_postgres() -> int:
     )
 
 
-@flow(name="postgres-load", timeout_seconds=43200)  # slowest completed: 8.7h
-def postgres_load_flow() -> None:
+def postgres_load() -> None:
     """Reload every API-serving table from its DuckLake source table."""
     bioproject_postgres()
     biosample_postgres()
@@ -661,4 +661,4 @@ def postgres_load_flow() -> None:
 
 
 if __name__ == "__main__":
-    postgres_load_flow()
+    postgres_load()

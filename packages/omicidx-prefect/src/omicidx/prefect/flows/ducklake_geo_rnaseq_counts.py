@@ -5,20 +5,22 @@ recomputed from scratch via `replace_to_ducklake` (CREATE OR REPLACE TABLE in
 a single stamped transaction). Kept intact from the pre-cdsci-lake write path.
 """
 
+import logging
+
 from omicidx.prefect.config import get_duckdb_path, get_ducklake_connection
 from omicidx.prefect.flows.ducklake import (
     LAKE_SCHEMA,
     _commit_extra,
     replace_to_ducklake,
 )
+from omicidx.prefect.run import retry
 
-from prefect import get_run_logger, task
+log = logging.getLogger(__name__)
 
 
-@task(retries=1, retry_delay_seconds=60)
+@retry
 def geo_rnaseq_counts_to_ducklake(lake_schema: str = LAKE_SCHEMA) -> dict:
     """Full-replace lake.<lake_schema>.geo_series_with_rnaseq_counts."""
-    log = get_run_logger()
     raw = get_duckdb_path("geo", "raw", "gse_with_rna_seq_counts.parquet")
     source_sql = f"SELECT accession FROM read_parquet('{raw}') ORDER BY accession"
     log.info(

@@ -11,15 +11,15 @@ The project lives at ``transform/`` (config.py + models/ + external_models.yaml)
 shipped as package data. See transform/README.md.
 """
 
+import logging
 from pathlib import Path
 
-from prefect import flow, get_run_logger
+log = logging.getLogger(__name__)
 
 TRANSFORM_DIR = Path(__file__).parent.parent / "transform"
 
 
-@flow(name="omicidx-transform")
-def transform_flow(environment: str = "prod") -> None:
+def transform(environment: str = "prod") -> None:
     """Plan + auto-apply the SQLMesh marts against the live DuckLake catalog.
 
     Writes mart views into the lake. Idempotent: an unchanged plan applies
@@ -27,7 +27,6 @@ def transform_flow(environment: str = "prod") -> None:
     """
     from sqlmesh import Context
 
-    log = get_run_logger()
     log.info(f"SQLMesh plan --auto-apply (env={environment}) from {TRANSFORM_DIR}")
     ctx = Context(paths=str(TRANSFORM_DIR))
     ctx.plan(environment=environment, no_prompts=True, auto_apply=True)
@@ -35,4 +34,4 @@ def transform_flow(environment: str = "prod") -> None:
 
 
 if __name__ == "__main__":
-    transform_flow()
+    transform()

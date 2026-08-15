@@ -1,0 +1,17 @@
+[Unit]
+Description=Weekly omicidx DuckLake catalog maintenance
+Documentation=https://github.com/seandavi/omicidx/issues/158
+
+[Timer]
+# Weekly, the cadence the retired Prefect deployment had (`0 4 * * 0`) — but
+# Sunday 14:00 UTC rather than 04:00. The daily chain starts at 05:00 and its
+# stages historically total 6.3-7h, so 14:00 clears a normal Sunday run:
+# compaction rewriting the same data files a load is merging into is a
+# transaction conflict waiting to happen. Under Prefect both ran in the same
+# window and got away with it; this just stops relying on that.
+OnCalendar=Sun *-*-* 14:00:00 UTC
+RandomizedDelaySec=1800
+Persistent=true
+
+[Install]
+WantedBy=timers.target

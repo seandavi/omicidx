@@ -31,13 +31,15 @@ geo_samples_parquet, geo_platforms_parquet). Only the ``cdsci-lake`` bucket
 is written; raw inputs are read from PUBLISH_ROOT via ``get_duckdb_path``.
 """
 
+import logging
+
 from cdsci.lake import ops
 from cdsci.lake.connect import upsert
 from omicidx.prefect.config import get_duckdb_path, get_lake_connection
 from omicidx.prefect.flows.ducklake import LAKE_SCHEMA
+from omicidx.prefect.run import retry, run_id
 
-from prefect import get_run_logger, task
-from prefect.runtime import flow_run
+log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # geo_series  (source: raw hive-partitioned NDJSON via glob)
@@ -177,7 +179,6 @@ def _merge_geo(
     lake_schema: str,
 ) -> dict:
     """Upsert one GEO entity into the lake and return a summary dict."""
-    log = get_run_logger()
     source_sql = source_template.format(path=raw_path)
     target = f"lake.{lake_schema}.{table}"
     with get_lake_connection() as con:
@@ -186,7 +187,7 @@ def _merge_geo(
             con,
             source="geo",
             target=target,
-            extra={"prefect_run_id": flow_run.get_id()},
+            extra={"run_id": run_id()},
         ) as r:
             r.rows = upsert(con, target, source_sql, key="accession")
         log.info(f"{target} now holds {r.rows:,} rows")
@@ -198,7 +199,7 @@ def _merge_geo(
 # ---------------------------------------------------------------------------
 
 
-@task(retries=1, retry_delay_seconds=60)
+@retry
 def geo_series_to_ducklake(lake_schema: str = LAKE_SCHEMA) -> dict:
     """MERGE raw GEO series NDJSON → lake.<lake_schema>.geo_series.
 
@@ -216,7 +217,7 @@ def geo_series_to_ducklake(lake_schema: str = LAKE_SCHEMA) -> dict:
     )
 
 
-@task(retries=1, retry_delay_seconds=60)
+@retry
 def geo_sample_to_ducklake(lake_schema: str = LAKE_SCHEMA) -> dict:
     """MERGE raw GEO sample NDJSON → lake.<lake_schema>.geo_sample.
 
@@ -234,7 +235,7 @@ def geo_sample_to_ducklake(lake_schema: str = LAKE_SCHEMA) -> dict:
     )
 
 
-@task(retries=1, retry_delay_seconds=60)
+@retry
 def geo_platform_to_ducklake(lake_schema: str = LAKE_SCHEMA) -> dict:
     """MERGE raw GEO platform NDJSON → lake.<lake_schema>.geo_platform.
 

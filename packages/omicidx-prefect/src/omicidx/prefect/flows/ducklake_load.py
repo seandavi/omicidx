@@ -15,7 +15,6 @@ from omicidx.prefect.config import get_lake_connection
 from omicidx.prefect.flows.ducklake import (
     LAKE_SCHEMA,
     bioproject_to_ducklake,
-    ducklake_maintenance,
 )
 from omicidx.prefect.flows.ducklake_biosample import biosample_to_ducklake
 from omicidx.prefect.flows.ducklake_geo import (
@@ -36,14 +35,11 @@ from omicidx.prefect.flows.ducklake_sra import (
 from omicidx.prefect.flows.ducklake_sra_accessions import sra_accessions_to_ducklake
 from omicidx.prefect.flows.sources import OMICIDX_SOURCES
 
-from prefect import flow
-
 
 # ponytail: timeouts are sized ~3x the slowest completed run in Prefect's
 # history, purely to stop orphans (a ducklake-load once sat Running 35 days).
 # Not a SLA — raise the number if a legitimate run ever trips it.
-@flow(name="ducklake-load", timeout_seconds=14400)  # slowest completed: 78m
-def ducklake_load_flow(lake_schema: str = LAKE_SCHEMA, force: bool = False) -> None:
+def ducklake_load(lake_schema: str = LAKE_SCHEMA, force: bool = False) -> None:
     """Upsert every entity's raw data into the DuckLake catalog.
 
     Tasks are independent (distinct lake tables); order is unconstrained.
@@ -75,23 +71,11 @@ def ducklake_load_flow(lake_schema: str = LAKE_SCHEMA, force: bool = False) -> N
     pubmed_to_ducklake(lake_schema=lake_schema)
 
 
-@flow(name="ducklake-maintenance")
-def ducklake_maintenance_flow(
-    retention_days: int | None = None,
-    compact: bool = True,
-) -> None:
-    """Scheduled (weekly) catalog maintenance: cleanup + compaction.
-
-    Runs independently of ducklake-load. Retention is UNBOUNDED by default
-    (spec §1: the internal lake is the primary time machine; raw Parquet under
-    PUBLISH_ROOT is the re-derivation backstop). The weekly deployment passes no
-    parameters, so it coalesces small parquet files and cleans truly
-    unreferenced files without ever expiring snapshots. Pass an explicit
-    ``retention_days`` to deliberately re-enable bounded expiry — the only path
-    that removes history.
-    """
-    ducklake_maintenance(retention_days=retention_days, compact=compact)
+# ponytail: the weekly-maintenance wrapper that used to sit here existed only
+# to be a second deployable @flow. `ducklake.ducklake_maintenance` is the real
+# thing and already documents the retention contract; it runs independently of
+# this module on `systemd/omicidx-ducklake-maintenance.timer`.
 
 
 if __name__ == "__main__":
-    ducklake_load_flow()
+    ducklake_load()

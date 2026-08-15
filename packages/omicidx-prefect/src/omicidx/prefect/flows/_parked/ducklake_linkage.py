@@ -31,10 +31,14 @@ also stamps the DuckLake commit — DuckLake clears the commit message on
 commit, so an auto-committed statement would lose the stamp.
 """
 
+import logging
+
 import duckdb
 from omicidx.prefect.config import get_ducklake_connection
 from omicidx.prefect.flows.ducklake import LAKE_SCHEMA, _commit_extra
-from prefect import get_run_logger, task
+from omicidx.prefect.run import retry
+
+log = logging.getLogger(__name__)
 
 # Value of bioproject.publications[].db that marks a real PMID. The other
 # observed values (DOI, PMC, NotAvailable) carry non-PMID identifiers.
@@ -86,7 +90,7 @@ def build_publication_accession_linkage(
     con: duckdb.DuckDBPyConnection,
     *,
     schema: str,
-    author: str = "prefect:ducklake-load",
+    author: str = "omicidx:ducklake-load",
     commit_message: str | None = None,
     commit_extra_info: str | None = None,
 ) -> None:
@@ -115,7 +119,7 @@ def build_publication_accession_linkage(
         raise
 
 
-@task(retries=1, retry_delay_seconds=60)
+@retry
 def publication_accession_linkage_to_ducklake(
     lake_schema: str = LAKE_SCHEMA,
 ) -> dict:
@@ -125,7 +129,6 @@ def publication_accession_linkage_to_ducklake(
     and bioproject into distinct (pmid, accession, accession_type, source)
     rows. Returns the table name, total row count, and per-type counts.
     """
-    log = get_run_logger()
     table = f"{lake_schema}.publication_accession_linkage"
     with get_ducklake_connection() as con:
         log.info(f"Building lake.{table} from lake.{lake_schema}.*")

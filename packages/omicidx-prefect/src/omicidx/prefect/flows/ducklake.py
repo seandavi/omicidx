@@ -20,6 +20,7 @@ exclusively. Raw inputs are read from PUBLISH_ROOT (a different bucket)
 via `get_duckdb_path`; nothing else is written into the lake bucket.
 """
 
+import logging
 from contextlib import contextmanager
 
 import duckdb
@@ -31,9 +32,9 @@ from omicidx.prefect.config import (
     get_ducklake_connection,
     get_lake_connection,
 )
+from omicidx.prefect.run import retry, run_id
 
-from prefect import get_run_logger, task
-from prefect.runtime import flow_run
+log = logging.getLogger(__name__)
 
 # Production lake schema. (Was omicidx_dev during the transition.)
 LAKE_SCHEMA = "omicidx"
@@ -41,7 +42,7 @@ LAKE_SCHEMA = "omicidx"
 
 def _commit_extra(**fields: object) -> str:
     """JSON blob for a snapshot's commit_extra_info, tagged with run id."""
-    return orjson.dumps({"prefect_run_id": flow_run.get_id(), **fields}).decode()
+    return orjson.dumps({"run_id": run_id(), **fields}).decode()
 
 
 @contextmanager
@@ -76,7 +77,7 @@ def replace_to_ducklake(
     schema: str,
     table: str,
     source_sql: str,
-    author: str = "prefect:ducklake-load",
+    author: str = "omicidx:ducklake-load",
     commit_message: str | None = None,
     commit_extra_info: str | None = None,
 ) -> int:
@@ -118,14 +119,13 @@ SELECT * EXCLUDE (rn) FROM (
 """
 
 
-@task(retries=1, retry_delay_seconds=60)
+@retry
 def bioproject_to_ducklake(lake_schema: str = LAKE_SCHEMA) -> dict:
     """Upsert raw bioproject JSONL → lake.<lake_schema>.bioproject.
 
     Snapshot attribution is automatic (author `omicidx:bioproject`) via the
     `ops.run` block; `upsert` gates on IS DISTINCT FROM, no `_row_hash`.
     """
-    log = get_run_logger()
     raw = get_duckdb_path("bioproject", "raw", "data.jsonl.gz")
     source_sql = _BIOPROJECT_SOURCE.format(path=raw)
     target = f"lake.{lake_schema}.bioproject"
@@ -135,7 +135,7 @@ def bioproject_to_ducklake(lake_schema: str = LAKE_SCHEMA) -> dict:
             con,
             source="bioproject",
             target=target,
-            extra={"prefect_run_id": flow_run.get_id()},
+            extra={"run_id": run_id()},
         ) as r:
             r.rows = upsert(con, target, source_sql, key="accession")
         log.info(f"{target} now holds {r.rows:,} rows")
@@ -145,7 +145,7 @@ def bioproject_to_ducklake(lake_schema: str = LAKE_SCHEMA) -> dict:
 # -- maintenance ---------------------------------------------------------------
 
 
-@task(retries=1, retry_delay_seconds=60)
+@retry
 def ducklake_maintenance(
     retention_days: int | None = None,
     compact: bool = True,
@@ -174,7 +174,6 @@ def ducklake_maintenance(
     retention. ``retention_days`` is a typed int (not a raw SQL interval), so it
     cannot inject SQL.
     """
-    log = get_run_logger()
     with get_ducklake_connection() as con:
         if retention_days is not None:
             con.execute(

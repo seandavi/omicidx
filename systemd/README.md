@@ -1,9 +1,13 @@
-# systemd units for omicidx's scheduled EL processes
+# systemd units for omicidx's scheduled jobs
 
 Source of truth for the units; the copies under `~/.config/systemd/user/` are
 deployment artifacts. Convention (and the rationale for every field) lives in
 `monode/infrastructure/SCHEDULING.md`; the reference implementation is
 `cdsci-lake/systemd/`.
+
+Since #158/#160 these timers are the **whole** scheduler. There is no Prefect
+server, no worker container, and no deployment manifest — `prefect.yaml`,
+`Dockerfile`, and `docker-compose.yml` were deleted with the excision.
 
 | Unit | Runs | Cadence |
 |---|---|---|
@@ -12,6 +16,8 @@ deployment artifacts. Convention (and the rationale for every field) lives in
 | `omicidx-biosample-extract` | `python -m omicidx.prefect.flows.biosample run` | daily 04:00 UTC (+≤30m jitter) |
 | `omicidx-geo-extract` | `python -m omicidx.prefect.flows.geo run` | daily 06:00 UTC (+≤30m jitter) |
 | `omicidx-pubmed-extract` | `python -m omicidx.prefect.flows.pubmed run` | hourly (+≤5m jitter) |
+| `omicidx-downstream` | `python -m omicidx.prefect.flows.main run` | daily 05:00 UTC (+≤15m jitter) |
+| `omicidx-ducklake-maintenance` | `omicidx-prefect run ducklake-maintenance` | Sunday 14:00 UTC (+≤30m jitter) |
 
 `omicidx-biosample-extract` covers **both** NCBI full dumps (BioSample and
 BioProject) in one unit: same machinery, two URLs, both unpartitioned. It and
@@ -20,10 +26,67 @@ BioProject) in one unit: same machinery, two URLs, both unpartitioned. It and
 
 `omicidx-ebi-biosample-extract` declares no `Conflicts=` and sits between them:
 it crawls the EBI BioSamples HTTP API rather than pulling an NCBI bulk file, so
-it does not contend for the bandwidth the two heavy jobs fight over. Like SRA and
-BioSample it had no Prefect deployment of its own — it only ran inside
-`daily-pipeline` — so removing it from `raw_extract_flow` was the whole cutover;
-nothing to delete API-side.
+it does not contend for the bandwidth the two heavy jobs fight over.
+
+`omicidx-downstream` is the entire post-extraction chain in one unit — lake load
+→ transform → parquet export → postgres load → publish bundle. One unit, not
+five: the stages are strictly sequential and each consumes the previous one's
+output, so splitting them would only buy `After=` ordering the single process
+already has. It declares no `Conflicts=` with the extracts either — the load
+reads raw files that are already complete, so an extract still running at 05:00
+just means its newest partition lands in tomorrow's load. **Nothing downstream
+waits on an extract any more**, which is the whole point of #149: a slow or
+failing extract can no longer hold the publish hostage, which is exactly what
+GEO did for a month.
+
+## GEO: the unit exists, the timer is not installed yet
+
+`omicidx-geo-extract.{service,timer}` are committed and proven, but **not**
+installed on the host, and the table above describes what the timer *will* do.
+The reason is #174, not a defect: **2020-07 through 2026-08 — 74 months — has
+never been extracted.** 2020-07 was never a hang (#154 measured it: 62,419
+accessions, ~44 req/s, 22 minutes, zero errors); it is simply the frontier of a
+six-year backlog that stacked concurrent runs had throttled to ~1.2 req/s.
+
+That backlog is ~27h of work, so it must be burned down in the foreground
+first — on a timer it would hit `TimeoutStartSec` and page for five consecutive
+nights while making partial progress:
+
+```bash
+cd /home/davsean/Documents/git/omicidx
+uv run python -m omicidx.prefect.flows.geo run     # resumable, ^C-safe
+```
+
+Per-month semaphores make it resumable, so an interrupted run picks up where it
+stopped. Once current, a nightly run is one month and finishes in minutes —
+then install and enable the timer.
+
+Do **not** raise GEO's concurrency to speed this up. `MAX_WORKERS = 1` is the
+fix, not a placeholder: a month already fans 30-wide internally, and the
+measured knee is 8-wide → 61 req/s versus 30-wide → 6.5 req/s with 10% timeouts.
+More outer concurrency makes GEO slower.
+
+## Scratch space
+
+`omicidx-downstream` sets `TMPDIR=/data/davsean/tmp`. This is not optional:
+`publish-bundle` re-materializes every exported table into a local DuckLake
+before uploading, so it needs more free space than the entire snapshot — 63.4 GB
+on 2026-08-15 and growing, against a 30 GB `/tmp`. Run the stage by hand and you
+must export `TMPDIR` yourself, or it dies with `No space left on device` after
+doing all the work.
+
+## Recovery after a failed downstream run
+
+Per stage, not per chain — every stage is idempotent, so re-running from an
+earlier one is safe, just slower:
+
+```bash
+omicidx-prefect run ducklake-load
+omicidx-prefect run transform
+omicidx-prefect run parquet-export
+omicidx-prefect run postgres
+omicidx-prefect run publish-bundle
+```
 
 `omicidx-geo-extract` also declares no `Conflicts=`, for the same reason: it is
 bandwidth-light (tens of thousands of small `acc.cgi` requests, <1 GB RSS). The
@@ -40,64 +103,53 @@ failed"; the failing unit name in the body is what identifies it.
 ## Install (not done by CI — a live-system change, make it deliberately)
 
 ```bash
-cp systemd/omicidx-sra-extract.{service,timer} ~/.config/systemd/user/
-cp systemd/omicidx-ebi-biosample-extract.{service,timer} ~/.config/systemd/user/
-cp systemd/omicidx-biosample-extract.{service,timer} ~/.config/systemd/user/
-cp systemd/omicidx-geo-extract.{service,timer} ~/.config/systemd/user/
-cp systemd/omicidx-pubmed-extract.{service,timer} ~/.config/systemd/user/
+for u in sra-extract ebi-biosample-extract biosample-extract pubmed-extract \
+         downstream ducklake-maintenance; do
+  cp systemd/omicidx-$u.{service,timer} ~/.config/systemd/user/
+done
 # once, shared, if not already present:
 cp ~/Documents/git/cdsci-lake/systemd/ntfy-notify@.service ~/.config/systemd/user/
 systemctl --user daemon-reload
-systemctl --user enable --now omicidx-sra-extract.timer
-systemctl --user enable --now omicidx-ebi-biosample-extract.timer
-systemctl --user enable --now omicidx-biosample-extract.timer
-systemctl --user enable --now omicidx-geo-extract.timer
-systemctl --user enable --now omicidx-pubmed-extract.timer
+for u in sra-extract ebi-biosample-extract biosample-extract pubmed-extract \
+         downstream ducklake-maintenance; do
+  systemctl --user enable --now omicidx-$u.timer
+done
 ```
+
+Note the absent `geo-extract`: it is **not** in the loop above on purpose. See
+"GEO" below — install it only after the backlog is burned down (#174).
 
 Verify (substitute the unit you just installed):
 
 ```bash
 systemctl --user list-timers 'omicidx-*'
-systemctl --user start omicidx-biosample-extract.service   # one run by hand
-journalctl --user -u omicidx-biosample-extract.service -f
+systemctl --user start omicidx-downstream.service   # one run by hand
+journalctl --user -u omicidx-downstream.service -f
 ```
 
 **Start each unit once by hand before trusting it.** `systemd-analyze verify`
 only checks syntax; it passes a unit whose `ExecStart=` cannot be found at all.
 
-### PubMed only: retire the Prefect schedule in the same change
+## The environment these units read
 
-PubMed is the one domain that had a live standalone Prefect deployment
-(`pubmed-extract`, `interval: 3600`). Deleting the block from `prefect.yaml`
-does **not** unregister it — the schedule stays active in the API (learned the
-hard way in #145). Enable the timer and delete the schedule together, or PubMed
-extracts hourly twice:
-
-```bash
-cd packages/omicidx-prefect
-docker compose exec worker python - <<'PY'
-import asyncio
-from prefect.client.orchestration import get_client
-
-async def main():
-    async with get_client() as client:
-        dep = await client.read_deployment_by_name("pubmed-extract/pubmed-extract")
-        for s in dep.schedules:
-            await client.delete_deployment_schedule(dep.id, s.id)
-        print(f"deleted {len(dep.schedules)} schedule(s) from {dep.id}")
-        await client.delete_deployment(dep.id)   # the flow is no longer a @flow
-asyncio.run(main())
-PY
-```
-
-Confirm with `prefect deployment ls` — no `pubmed-extract`, and
-`systemctl --user list-timers omicidx-pubmed-extract.timer` shows the next fire.
+`EnvironmentFile=` points every unit at the repo-root `.env`, and they run on
+the **host**, not in a container. That killed the old host/container split:
+`POSTGRES_URI` used to say `@pg_main:5432` (a name that only resolves inside
+the Docker network) because the worker read the same file from inside it.
+Both `POSTGRES_URI` and `DUCKLAKE_URI` now point at `127.0.0.1:5432`, the port
+`pg_main` publishes. There is no second value to keep in sync.
 
 Extraction leaves no `lake_ops.run` row by design (#149): it writes raw files to
 R2 and adds no DuckLake snapshot, so the ledger is the per-partition semaphores
 (`omicidx-prefect semaphores list sra/study`, `... list biosample`), journald is
-the narrative, and ntfy is the failure signal. `ops.run` stays on the load side.
+the narrative, and ntfy is the failure signal. `ops.run` stays on the load side —
+i.e. on `omicidx-downstream`.
+
+Snapshots written by the downstream chain carry `run_id` in their
+`commit_extra_info`, and on a scheduled run that id is systemd's
+`INVOCATION_ID` — so `journalctl _SYSTEMD_INVOCATION_ID=<id>` pulls up the log
+for any snapshot you find in the lake. (Snapshots written before #158 carry
+`prefect_run_id` instead; those ids are gone with the server.)
 
 ## GEO: expect a backfill before it settles
 

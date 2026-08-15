@@ -1,15 +1,18 @@
 # omicidx-prefect
 
-Prefect 3 flows for OmicIDX ETL — the same pipeline as `omicidx-dagster`,
-re-implemented on top of Prefect with **semaphore-file partitioning** in
-place of Dagster's built-in partition state.
+The OmicIDX EL + transform pipeline over DuckLake. **There is no orchestrator**:
+as of #158/#160 every job is a plain Python process on a systemd `--user` timer
+(`systemd/README.md`). Prefect is gone — server, worker, deployments, decorators
+— and the package name is the only thing left that says otherwise (renaming it
+is its own churn, deferred).
 
 ## Why semaphore files
 
-Dagster tracks partition completion in its own Postgres-backed event
-log. That ties the pipeline's "what's done" state to the orchestrator's
-metadata DB. Prefect doesn't model partitions natively, and we don't
-want to lean on Prefect's run history for it either.
+Partition completion has never lived in an orchestrator's database here, which
+is why dropping two orchestrators in a row cost nothing: Dagster tracked
+partitions in its Postgres event log, Prefect doesn't model partitions at all,
+and leaning on either one's run history would have tied "what's done" to
+whatever tool was current that year.
 
 Instead, each partition writes a small JSON marker — a *semaphore* — to
 the same storage bucket as the data:
@@ -71,24 +74,22 @@ to skip even those.
 ```
 packages/omicidx-prefect/
 ├── pyproject.toml
-├── prefect.yaml             # deployments (schedules)
-├── Dockerfile               # worker image
-├── docker-compose.yml       # worker (joins shared monode prefect-server)
 ├── src/omicidx/prefect/
 │   ├── config.py            # Settings + storage / duckdb / postgres helpers
 │   ├── semaphore.py         # SemaphoreStore
+│   ├── source.py            # Source protocol + run_extraction driver
+│   ├── run.py               # run_id() + retry (what @flow/@task used to give)
 │   ├── cli.py               # `omicidx-prefect` operator CLI
 │   ├── flows/
-│   │   ├── sra.py
+│   │   ├── sra.py           # each extract: `python -m ...flows.<name> run`
 │   │   ├── geo.py
 │   │   ├── biosample.py
 │   │   ├── pubmed.py
 │   │   ├── ebi_biosample.py
-│   │   ├── consolidate.py
 │   │   ├── postgres.py
 │   │   ├── sql.py           # thin duckdb-build (mart views over public Parquet)
-│   │   ├── transform.py     # SQLMesh transform flow (plan/apply)
-│   │   └── main.py          # daily_pipeline_flow
+│   │   ├── transform.py     # SQLMesh transform (plan/apply)
+│   │   └── main.py          # the downstream chain (`omicidx-downstream` unit)
 │   ├── transform/           # SQLMesh project: src→stg→geometadb/sradb marts
 │   └── sql/                 # raw→parquet SQL (010 only; 020–050 → SQLMesh)
 └── tests/
@@ -111,52 +112,32 @@ uv run omicidx-prefect semaphores list sra/study
 uv run omicidx-prefect semaphores show pubmed pubmed25n0001
 ```
 
-## Prefect worker
+## Scheduling
 
-The Prefect server + UI + API is the **shared** instance from monode
-`infrastructure/compose/prefect` (container `prefect-server`, backed by
-pg_main, reached over the tailnet). This package ships a **worker only**:
-`docker-compose.yml` builds the omicidx worker image and joins the shared
-`pg_main_stack_default` network, which is how it reaches both
-`prefect-server:4200` (the API) and `pg_main:5432` (the DuckLake catalog
-+ serving Postgres).
+Every scheduled job is a systemd `--user` timer on onclappc02 — see
+`systemd/README.md` at the repo root for the unit table, the install steps, and
+the recovery commands. In short:
 
-```bash
-cd packages/omicidx-prefect
+| Job | Unit |
+|---|---|
+| one extract per domain | `omicidx-{sra,pubmed,biosample,ebi-biosample}-extract` |
+| the whole downstream chain | `omicidx-downstream` |
+| weekly catalog maintenance | `omicidx-ducklake-maintenance` |
 
-# .env supplies S3_*, PUBLISH_ROOT, POSTGRES_URI, DUCKLAKE_URI, DUCKLAKE_DATA_PATH
-cp .env.example .env  # (create one if you haven't)
+The downstream chain is `ducklake-load → transform → parquet-export →
+postgres-load → publish-bundle`. `transform` is the SQLMesh mart build (lake
+views); `parquet-export` is the reverse-ETL (lake tables + marts → public
+Parquet, ADR-0004); `publish-bundle` builds the thin marts-only
+`omicidx.duckdb` into the frozen bundle.
 
-# build + start the worker (shared prefect-server must already be running)
-docker compose up -d --build
+**Extraction and the downstream chain are decoupled.** Nothing downstream waits
+on an extract: the chain loads whatever raw is on R2 when it starts. That is
+the point of #149 — under the old single `daily-pipeline` flow, GEO's crawl
+held the publish hostage for a month.
 
-# register/refresh deployments (schedules) on the shared server
-docker compose exec worker prefect deploy --all
-docker compose exec worker prefect deployment ls
-```
-
-The pipeline is `raw-extract → ducklake-load → transform → parquet-export →
-postgres-load → duckdb-build`; schedules live in `prefect.yaml`.
-`transform` is the SQLMesh mart build (lake views); `parquet-export` is the
-reverse-ETL (lake tables + marts → public Parquet, ADR-0004); `duckdb-build` is
-now a thin set of mart views over that public Parquet.
-
-## Mapping from Dagster
-
-| Dagster concept                  | Prefect equivalent here                                |
-|----------------------------------|--------------------------------------------------------|
-| `@dg.asset`                      | `@task` inside a `@flow`                               |
-| `dg.Definitions(...)`            | `prefect.yaml` (deployments)                           |
-| `dg.ScheduleDefinition`          | `schedules:` in `prefect.yaml`                         |
-| `StaticPartitionsDefinition`     | semaphore namespace per static value                   |
-| `MonthlyPartitionsDefinition`    | `_enumerate_months()` + semaphore per `YYYY-MM` key    |
-| `DailyPartitionsDefinition`      | `_enumerate_days()` + semaphore per `YYYY-MM-DD` key   |
-| `DynamicPartitionsDefinition`    | flow lists the source itself, gates by semaphore       |
-| `OmicidxStorage` resource        | `config.get_upath()` / `config.get_duckdb_path()`      |
-| `DuckDBResource` resource        | `config.get_duckdb_connection()`                       |
-| `PostgresResource` resource      | `config.execute_postgres_sql()` / `attach_postgres()`  |
-| ETag-change sensor               | `sra_accessions_if_changed` task (semaphore stores ETag)|
-| `dg.AutomationCondition`         | sequential subflows in `daily_pipeline_flow`           |
+GEO's timer is committed but not installed: 74 months (2020-07 onward) have
+never been extracted, and that ~27h backlog needs one foreground run first
+(#174). Run it by hand with `omicidx-prefect run geo`; it is resumable.
 
 ## Environment variables
 
@@ -184,12 +165,16 @@ uv run pytest packages/omicidx-prefect/tests/
 
 ## Operational notes
 
-- **Concurrency**: each flow uses `ThreadPoolTaskRunner(max_workers=...)`.
-  Tune per flow if a source is rate-limited (GEO uses 2 to be polite to
-  the eutils API).
-- **Retries**: raw extract tasks have `retries=2, retry_delay_seconds=60`;
-  consolidate / postgres / sql tasks have `retries=1, retry_delay_seconds=60`.
-- **Failure semantics**: if a partition task fails after retries, the
-  semaphore is **not** written — the next run picks it up automatically.
-- **Force re-run**: every flow accepts a `force: bool = False` parameter
-  that bypasses semaphores.
+- **Concurrency**: `source.run_extraction` fans a source's partitions across a
+  bounded `ThreadPoolExecutor`; each source passes its own `max_workers`
+  (GEO uses 2 to be polite to the eutils API).
+- **Retries**: extraction retries a partition 3x/60s (`source.py`); the load
+  stages retry once at 60s (`run.retry`). Beyond that the process exits
+  non-zero, which trips the unit's `OnFailure=` and pages via ntfy.
+- **Failure semantics**: if a partition fails after retries, the semaphore is
+  **not** written — the next run picks it up automatically.
+- **Force re-run**: every extract accepts `force` (`--force` on the CLI) to
+  bypass semaphores.
+- **Tracing a snapshot back to its run**: lake snapshots carry `run_id` in
+  `commit_extra_info`; on a scheduled run that is systemd's `INVOCATION_ID`, so
+  `journalctl _SYSTEMD_INVOCATION_ID=<id>` finds the log.

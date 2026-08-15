@@ -7,13 +7,15 @@ DISTINCT FROM, so an unchanged row writes nothing and adds no snapshot.
 Null sentinel '-' is handled by read_csv_auto(nullstr='-').
 """
 
+import logging
+
 from cdsci.lake import ops
 from cdsci.lake.connect import upsert
 from omicidx.prefect.config import get_lake_connection
 from omicidx.prefect.flows.ducklake import LAKE_SCHEMA
+from omicidx.prefect.run import retry, run_id
 
-from prefect import get_run_logger, task
-from prefect.runtime import flow_run
+log = logging.getLogger(__name__)
 
 _SRA_ACCESSIONS_URL = (
     "https://ftp.ncbi.nlm.nih.gov/sra/reports/Metadata/SRA_Accessions.tab"
@@ -48,10 +50,9 @@ FROM read_csv_auto(
 """
 
 
-@task(retries=1, retry_delay_seconds=60)
+@retry
 def sra_accessions_to_ducklake(lake_schema: str = LAKE_SCHEMA) -> dict:
     """Upsert lake.<lake_schema>.sra_accessions from SRA_Accessions.tab."""
-    log = get_run_logger()
     source_sql = _SRA_ACCESSIONS_SQL.format(url=_SRA_ACCESSIONS_URL)
     target = f"lake.{lake_schema}.sra_accessions"
     with get_lake_connection() as con:
@@ -60,7 +61,7 @@ def sra_accessions_to_ducklake(lake_schema: str = LAKE_SCHEMA) -> dict:
             con,
             source="sra",
             target=target,
-            extra={"prefect_run_id": flow_run.get_id()},
+            extra={"run_id": run_id()},
         ) as r:
             r.rows = upsert(con, target, source_sql, key="accession")
         log.info(f"{target} now holds {r.rows:,} rows")

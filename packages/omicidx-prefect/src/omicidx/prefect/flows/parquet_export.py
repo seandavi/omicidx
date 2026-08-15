@@ -22,6 +22,7 @@ COPY into a *different* bucket than the lake's ``cdsci-lake`` reuses it with no
 extra credentials.
 """
 
+import logging
 from datetime import UTC, datetime, timedelta
 
 from omicidx.prefect.config import (
@@ -32,8 +33,9 @@ from omicidx.prefect.config import (
     settings,
 )
 from omicidx.prefect.flows.ducklake import LAKE_SCHEMA
+from omicidx.prefect.run import retry
 
-from prefect import flow, get_run_logger, task
+log = logging.getLogger(__name__)
 
 # (lake table, public parquet filename). Names differ: lake tables are
 # singular; the public files use the plural form. Authoritative against the
@@ -78,7 +80,7 @@ MART_EXPORTS: list[tuple[str, str]] = [
 ]
 
 
-@task(retries=1, retry_delay_seconds=60)
+@retry
 def export_table(
     lake_table: str, filename: str, date: str, lake_schema: str = LAKE_SCHEMA
 ) -> dict:
@@ -88,7 +90,6 @@ def export_table(
     re-reading that dated Parquet over httpfs — not a second lake read, and not
     an s3fs server-side copy (see the inline note).
     """
-    log = get_run_logger()
     dated = get_public_parquet_path(f"v{date}", filename)
     latest = get_public_parquet_path("latest", filename)
     with get_ducklake_connection() as con:
@@ -117,7 +118,6 @@ def export_table(
     }
 
 
-@task
 def prune_dated_folders(keep_date: str) -> list[str]:
     """Delete immutable v{date}/ folders older than the retention window.
 
@@ -125,7 +125,6 @@ def prune_dated_folders(keep_date: str) -> list[str]:
     identified by the ``vYYYY-MM-DD`` prefix; anything else under the public
     root (``latest/``, ``duckdb/``, ...) is left untouched.
     """
-    log = get_run_logger()
     days = settings().public_bundle_retention_days
     cutoff = (
         datetime.strptime(keep_date, "%Y-%m-%d").replace(tzinfo=UTC)
@@ -150,8 +149,7 @@ def prune_dated_folders(keep_date: str) -> list[str]:
     return removed
 
 
-@flow(name="parquet-export", timeout_seconds=7200)  # slowest completed: 31m
-def parquet_export_flow(date: str | None = None, lake_schema: str = LAKE_SCHEMA) -> str:
+def parquet_export(date: str | None = None, lake_schema: str = LAKE_SCHEMA) -> str:
     """Export every core lake table to v{date}/ + latest/, prune old folders.
 
     Sits between ``ducklake-load`` and ``publish-bundle`` in the daily
@@ -168,4 +166,4 @@ def parquet_export_flow(date: str | None = None, lake_schema: str = LAKE_SCHEMA)
 
 
 if __name__ == "__main__":
-    parquet_export_flow()
+    parquet_export()

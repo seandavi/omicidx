@@ -17,7 +17,6 @@ at the throwaway lake and a tmp dir.
 """
 
 import contextlib
-import logging
 from pathlib import Path
 
 import duckdb
@@ -71,10 +70,7 @@ def test_loaded_rows_survive_export_to_parquet(tmp_path, monkeypatch):
         return str(p)
 
     monkeypatch.setattr(parquet_export, "get_public_parquet_path", _fake_public_path)
-    # Outside a flow run there is no Prefect logging context.
-    monkeypatch.setattr(parquet_export, "get_run_logger", logging.getLogger)
-
-    result = parquet_export.export_table.fn(
+    result = parquet_export.export_table(
         "geo_platform", "geo_platforms.parquet", "2026-01-01"
     )
 

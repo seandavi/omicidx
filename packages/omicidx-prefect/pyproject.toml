@@ -1,17 +1,13 @@
 [project]
 name = "omicidx-prefect"
 version = "0.1.0"
-description = "Prefect flows for OmicIDX ETL pipelines"
+description = "OmicIDX EL + transform pipeline over DuckLake (systemd-scheduled, no orchestrator)"
 authors = [
     {name = "Sean Davis", email = "seandavi@gmail.com"},
 ]
 license = {text = "MIT"}
 requires-python = ">=3.11"
 dependencies = [
-    # Kept as a range: pinning here is unsatisfiable in the workspace
-    # (prefect 3.7.2 needs cyclopts>=4.8, omicidx-etl caps it below that).
-    # The image's client version is pinned in the Dockerfile instead.
-    "prefect>=3.0",
     "omicidx-parsers",
     "pyarrow>=20.0.0",
     "httpx>=0.28",
