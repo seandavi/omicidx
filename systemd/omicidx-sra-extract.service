@@ -1,0 +1,35 @@
+# Pilot unit for omicidx's move off Prefect onto systemd --user timers (#153).
+# Instance of the convention in monode/infrastructure's SCHEDULING.md; copied
+# from cdsci-lake/systemd/icite.service, which is the reference implementation.
+#
+# The module path still says `prefect` and no Prefect is involved: the rename
+# is #160, which has to touch every unit file anyway.
+[Unit]
+Description=Extract the current-batch NCBI SRA mirror files to raw parquet on R2
+Documentation=https://github.com/seandavi/omicidx/issues/153
+After=network-online.target
+Wants=network-online.target
+OnFailure=ntfy-notify@%N.service
+# Both jobs pull multi-GB NCBI archives and stream them through pyarrow; running
+# them together contends for bandwidth and memory. Same precedent as pmc/openalex
+# in SCHEDULING.md §4. omicidx-biosample-extract lands in #155 — naming a unit
+# that does not exist yet is inert, not an error.
+Conflicts=omicidx-biosample-extract.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/davsean/Documents/git/omicidx
+EnvironmentFile=/home/davsean/Documents/git/omicidx/.env
+ExecStart=/usr/bin/env uv run python -m omicidx.prefect.flows.sra run
+# RuntimeMaxSec= silently has no effect on Type=oneshot (systemd quirk, verified
+# with `systemd-analyze verify` for cdsci-lake) — use TimeoutStartSec=.
+# A no-op run (every semaphore present) finishes in a couple of minutes: just the
+# Mirroring glob. A real new batch is 4 entities x ~75 mirror files, 4 at a time,
+# the `run` entity alone being hundreds of millions of records. The whole 5-domain
+# raw-extract took 4-5h inside daily-pipeline, so 6h is real headroom for SRA
+# alone without false-alarming on a big-but-healthy night.
+TimeoutStartSec=21600
+Nice=10
+
+[Install]
+WantedBy=default.target

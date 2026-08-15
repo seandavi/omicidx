@@ -25,7 +25,6 @@ from omicidx.prefect.flows.parquet_export import parquet_export_flow
 from omicidx.prefect.flows.postgres import postgres_load_flow
 from omicidx.prefect.flows.publish_bundle import publish_bundle_flow
 from omicidx.prefect.flows.pubmed import pubmed_extract_flow
-from omicidx.prefect.flows.sra import sra_extract_flow
 from omicidx.prefect.flows.transform import transform_flow
 
 from prefect import flow
@@ -33,10 +32,20 @@ from prefect import flow
 
 @flow(name="raw-extract")
 def raw_extract_flow(force: bool = False) -> None:
-    """Run every raw extractor. Mirrors `daily_extract_schedule`."""
+    """Run the raw extractors that have not yet moved to their own timer.
+
+    Hollowing out on purpose (#149): each domain migrated to a standalone
+    scheduled EL process is removed here in the same change that adds its
+    timer, or it would extract twice — once on its timer, once inside
+    `daily-pipeline`. When the last one goes, `daily-pipeline` is nothing but
+    the downstream chain, which is what #158 replaces.
+    """
     biosample_extract_flow(force=force)
     bioproject_extract_flow(force=force)
-    sra_extract_flow(force=force)
+    # ponytail: sra-extract is deliberately absent. It is the pilot standalone
+    # EL process (#153) and now runs on its own systemd timer
+    # (`systemd/omicidx-sra-extract.timer`); ad-hoc runs are
+    # `python -m omicidx.prefect.flows.sra run` or `omicidx-prefect run sra`.
     # ponytail: geo-extract is deliberately absent. It wedges on 2020-07 and
     # held the whole pipeline in `Running` from 2026-08-08, so every stage
     # below it — including the publish — has not run for a month. Four healthy

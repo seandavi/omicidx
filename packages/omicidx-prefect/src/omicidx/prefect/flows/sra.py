@@ -1,18 +1,26 @@
-"""SRA extract flow.
+"""SRA extract: a standalone scheduled EL process (#153, the pilot for #154-#157).
 
 Partitions are SRA mirror files identified by (entity, date, stage). Each
 file gets a semaphore at `_semaphores/sra/{entity}/{date}_{stage}.json`.
-The flow fetches the current-batch listing, then maps an extract task
+The extractor fetches the current-batch listing, then fans an extract out
 across (entity, date, stage) triples, skipping any with a semaphore.
+
+No orchestrator: run it as `python -m omicidx.prefect.flows.sra run` (that is
+what the systemd unit in `systemd/omicidx-sra-extract.service` does), logs go
+to stdout -> journald, failures trip `OnFailure=ntfy-notify@%N.service`, and
+the semaphores are the per-partition ledger. The module path still says
+`prefect` only because the rename is #160.
 """
 
 import datetime
 import gzip
+import logging
 import re
 import shutil
 import tempfile
 from functools import lru_cache
 
+import click
 import pyarrow as pa
 import pyarrow.parquet as pq
 from omicidx.parsers.sra.parser import iter_sra_records
@@ -21,10 +29,13 @@ from omicidx.prefect.semaphore import SemaphoreStore
 from omicidx.prefect.source import run_extraction
 from upath import UPath
 
-from prefect import flow, get_run_logger, task
-from prefect.task_runners import ThreadPoolTaskRunner
+log = logging.getLogger(__name__)
 
 ENTITIES = ["study", "sample", "experiment", "run"]
+
+#: Concurrent mirror files in flight. Was `ThreadPoolTaskRunner(max_workers=4)`;
+#: kept at 4 so the migration changes the mechanism, not the load on NCBI.
+MAX_WORKERS = 4
 
 
 # ---------------------------------------------------------------------------
@@ -262,7 +273,6 @@ def _write_parquet_chunks(
     out_dir: UPath,
     chunk_size: int = 500_000,
 ) -> tuple[int, int]:
-    log = get_run_logger()
     schema = _get_pyarrow_schema(entity)
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -309,22 +319,21 @@ def _mirror_index() -> dict[str, dict]:
 
     The partition key is ``{entity}/{date}_{stage}`` — an opaque string to the
     driver. The entry (url, entity, date, stage) is resolved back here so
-    ``extract(key, force)`` needs no URL argument. Threads (SRA's task runner)
+    ``extract(key, force)`` needs no URL argument. The driver's worker threads
     share this cache, so the mirror is globbed once per run.
     """
     entries = [e for e in _get_mirror_entries() if e["in_current_batch"]]
     return {f"{e['entity']}/{_partition_key(e)}": e for e in entries}
 
 
-@task(retries=2, retry_delay_seconds=60, task_run_name="sra-extract-{key}")
 def extract_sra_partition(key: str, force: bool = False) -> dict:
     """Extract a single SRA mirror file to parquet, gated by a semaphore.
 
     ``key`` is ``{entity}/{date}_{stage}``; the mirror entry (url, date, stage)
     is resolved from the cached listing. Semaphores keep their per-entity
-    layout at ``_semaphores/sra/{entity}/{date}_{stage}.json``.
+    layout at ``_semaphores/sra/{entity}/{date}_{stage}.json``. Retries are the
+    driver's (`run_extraction`), not this function's.
     """
-    log = get_run_logger()
     entry = _mirror_index()[key]
     entity = entry["entity"]
     leaf = _partition_key(entry)
@@ -367,7 +376,7 @@ class SraSource:
     mirror files are immutable — a new batch gets new keys, so done == done.
 
     Partition key is the composite ``{entity}/{date}_{stage}`` (this is what
-    shows up in the Prefect task-run name). Its semaphore, however, keeps the
+    shows up in the log lines). Its semaphore, however, keeps the
     per-entity split: to clear one by hand, run
     ``omicidx-prefect semaphores clear sra/{entity} {date}_{stage}`` — i.e. the
     text before the slash is the namespace suffix, the text after is the key.
@@ -386,11 +395,7 @@ class SraSource:
         ]
 
 
-@flow(
-    name="sra-extract",
-    task_runner=ThreadPoolTaskRunner(max_workers=4),
-)
-def sra_extract_flow(force: bool = False) -> None:
+def sra_extract(force: bool = False, max_workers: int = MAX_WORKERS) -> list[dict]:
     """Extract every current-batch SRA mirror file to parquet.
 
     Each (entity, date, stage) triple is one partition. Semaphores live
@@ -400,8 +405,30 @@ def sra_extract_flow(force: bool = False) -> None:
     # Fresh mirror listing per run: the lru_cache dedups the glob within a run
     # (threads share it) but must not persist across runs in a reused process.
     _mirror_index.cache_clear()
-    run_extraction(SraSource(), force=force)
+    return run_extraction(SraSource(), force=force, max_workers=max_workers)
+
+
+@click.group()
+def cli() -> None:
+    """SRA raw extraction (`python -m omicidx.prefect.flows.sra run`)."""
+
+
+@cli.command("run")
+@click.option("--force", is_flag=True, help="Re-extract every partition.")
+@click.option("--max-workers", default=MAX_WORKERS, show_default=True)
+def run_command(force: bool, max_workers: int) -> None:
+    """Extract every pending SRA mirror partition."""
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
+    )
+    results = sra_extract(force=force, max_workers=max_workers)
+    extracted = [r for r in results if not r.get("skipped")]
+    rows = sum(r.get("row_count", 0) for r in extracted)
+    click.echo(
+        f"sra: {len(extracted)} partitions extracted "
+        f"({len(results) - len(extracted)} skipped), {rows:,} rows"
+    )
 
 
 if __name__ == "__main__":
-    sra_extract_flow()
+    cli()
