@@ -15,7 +15,12 @@ WORKDIR /opt/prefect/omicidx
 RUN ln -s /opt/prefect/workspace/packages/omicidx-prefect/src /opt/prefect/omicidx/src \
     && ln -s /opt/prefect/workspace/packages/omicidx-prefect/prefect.yaml /opt/prefect/omicidx/prefect.yaml
 
+# Client pinned to the running prefect-server version. Unpinned, every image
+# rebuild floats it (3.7.8 -> 3.8.3 on 2026-08-14 against a 3.7.2 server, which
+# logs a version-mismatch warning on worker start). Bump this only together
+# with the shared prefect-server in monode/infrastructure/compose/prefect/.
 RUN pip install --no-cache-dir \
+    "prefect==3.7.2" \
     /opt/prefect/workspace/packages/omicidx-parsers \
     /opt/prefect/workspace/packages/omicidx-prefect
 

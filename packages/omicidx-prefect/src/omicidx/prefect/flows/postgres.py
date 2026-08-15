@@ -645,7 +645,7 @@ def pubmed_postgres() -> int:
     )
 
 
-@flow(name="postgres-load")
+@flow(name="postgres-load", timeout_seconds=43200)  # slowest completed: 8.7h
 def postgres_load_flow() -> None:
     """Reload every API-serving table from its DuckLake source table."""
     bioproject_postgres()

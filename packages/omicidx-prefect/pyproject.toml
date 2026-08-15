@@ -8,6 +8,9 @@ authors = [
 license = {text = "MIT"}
 requires-python = ">=3.11"
 dependencies = [
+    # Kept as a range: pinning here is unsatisfiable in the workspace
+    # (prefect 3.7.2 needs cyclopts>=4.8, omicidx-etl caps it below that).
+    # The image's client version is pinned in the Dockerfile instead.
     "prefect>=3.0",
     "omicidx-parsers",
     "pyarrow>=20.0.0",
