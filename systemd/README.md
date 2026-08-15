@@ -66,6 +66,15 @@ fix, not a placeholder: a month already fans 30-wide internally, and the
 measured knee is 8-wide → 61 req/s versus 30-wide → 6.5 req/s with 10% timeouts.
 More outer concurrency makes GEO slower.
 
+## Scratch space
+
+`omicidx-downstream` sets `TMPDIR=/data/davsean/tmp`. This is not optional:
+`publish-bundle` re-materializes every exported table into a local DuckLake
+before uploading, so it needs more free space than the entire snapshot — 63.4 GB
+on 2026-08-15 and growing, against a 30 GB `/tmp`. Run the stage by hand and you
+must export `TMPDIR` yourself, or it dies with `No space left on device` after
+doing all the work.
+
 ## Recovery after a failed downstream run
 
 Per stage, not per chain — every stage is idempotent, so re-running from an

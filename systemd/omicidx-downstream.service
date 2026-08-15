@@ -22,6 +22,14 @@ WorkingDirectory=/home/davsean/Documents/git/omicidx
 EnvironmentFile=/home/davsean/Documents/git/omicidx/.env
 # NOT `/usr/bin/env uv` — systemd --user gives a minimal PATH that excludes
 # ~/.local/bin. See the note in omicidx-sra-extract.service.
+# publish-bundle re-materializes EVERY exported table into a local DuckLake
+# before uploading it, so it needs scratch space larger than the whole
+# snapshot: 63.4 GB as of 2026-08-15, and growing (pubmed_articles alone is
+# 37.5 GB). /tmp on this host is a 30 GB LVM volume, so the default
+# tempfile location cannot ever fit it — the 2026-08-15 run died with
+# "No space left on device" after the other four stages had succeeded.
+# /data has 11 TB free and is where this host puts large scratch anyway.
+Environment=TMPDIR=/data/davsean/tmp
 ExecStart=%h/.local/bin/uv run python -m omicidx.prefect.flows.main run
 # RuntimeMaxSec= silently has no effect on Type=oneshot — use TimeoutStartSec=.
 # Sized from the per-stage Prefect history, which is the only runtime evidence

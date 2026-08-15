@@ -66,6 +66,13 @@ state_connection = PostgresConnectionConfig(
 )
 
 config = Config(
+    # Names this project in the shared SQLMesh state. Load-bearing, not cosmetic:
+    # SQLMesh only preserves another project's models when planning a subset if
+    # every project names itself (`any(self._projects)` in core/context.py — the
+    # default "" is falsy and disables the guard for ALL projects sharing the
+    # state). Without this, a second project planning prod would drop omicidx's
+    # sradb.*/geometadb.* virtual layer, which parquet_export publishes.
+    project="omicidx",
     gateways={
         "lake": GatewayConfig(
             connection=connection,
