@@ -454,9 +454,21 @@ def run_command(
     start_month: str, end_month: str | None, force: bool, max_workers: int
 ) -> None:
     """Extract every pending GEO monthly partition."""
+    # force=True is load-bearing, not cargo cult. This module still imports
+    # `prefect` for `geo_rna_seq_counts_flow`, and that import installs a
+    # PrefectConsoleHandler on the *root* logger at level WARNING -- which makes
+    # a plain `basicConfig()` a silent no-op and drops every INFO line this
+    # process emits. Caught only by running the entry point: a month extracted
+    # correctly and logged absolutely nothing to journald. Drop the `force` when
+    # geo_rna_seq_counts_flow leaves (#158) and the prefect import goes.
     logging.basicConfig(
-        level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        force=True,
     )
+    # httpx logs one INFO line per request; a month is ~62k requests, so at
+    # INFO this unit alone would write ~5M lines/night into journald.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
     results = geo_extract(
         start_month=start_month,
         end_month=end_month,
