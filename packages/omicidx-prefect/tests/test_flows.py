@@ -138,47 +138,106 @@ def test_real_sources_conform_to_protocol(monkeypatch, tmp_path):
         s = cls()
         assert isinstance(s, Source), cls.__name__
         assert isinstance(s.name, str) and s.name
-        assert hasattr(s.extract, "submit"), f"{cls.__name__}.extract is not a task"
+        assert callable(s.extract), f"{cls.__name__}.extract is not callable"
+
+
+class _FakeSource:
+    """Minimal Source: 2 pending keys, 3 when forced."""
+
+    name = "fake"
+
+    def __init__(self, extract):
+        self.extract = extract
+
+    def list_partitions(self, force: bool = False) -> list[str]:
+        return ["a", "b", "c"] if force else ["a", "b"]
 
 
 def test_run_extraction_drives_every_key_with_force(monkeypatch, tmp_path):
     """The generic driver lists pending keys and extracts each, threading force."""
     _stub_env(monkeypatch, tmp_path)
     from omicidx.prefect.source import Source, run_extraction
-    from prefect import flow, task
-    from prefect.testing.utilities import prefect_test_harness
 
     calls: list[tuple[str, bool]] = []
 
-    @task
     def fake_extract(key: str, force: bool = False) -> dict:
         calls.append((key, force))
         return {"key": key, "skipped": False}
 
-    class FakeSource:
-        name = "fake"
-        extract = staticmethod(fake_extract)
+    source = _FakeSource(fake_extract)
+    assert isinstance(source, Source)
 
+    results = run_extraction(source, force=False)
+    assert sorted(c[0] for c in calls) == ["a", "b"]
+    assert all(c[1] is False for c in calls)
+    # results come back in key order, not completion order
+    assert [r["key"] for r in results] == ["a", "b"]
+
+    calls.clear()
+    run_extraction(source, force=True)
+    # force reaches both list_partitions (extra key "c") and each extract
+    assert sorted(c[0] for c in calls) == ["a", "b", "c"]
+    assert all(c[1] is True for c in calls)
+
+
+def test_run_extraction_fanout_is_bounded_by_max_workers(monkeypatch, tmp_path):
+    """No more than max_workers extracts are ever in flight — and more than one is."""
+    import threading
+
+    _stub_env(monkeypatch, tmp_path)
+    from omicidx.prefect.source import run_extraction
+
+    lock = threading.Lock()
+    state = {"in_flight": 0, "peak": 0}
+    # Every worker must meet 2 others at the barrier; if the pool were serial (or
+    # narrower than 2) this times out and the test fails loudly rather than flakily.
+    barrier = threading.Barrier(2, timeout=10)
+
+    def slow_extract(key: str, force: bool = False) -> dict:
+        with lock:
+            state["in_flight"] += 1
+            state["peak"] = max(state["peak"], state["in_flight"])
+        barrier.wait()
+        with lock:
+            state["in_flight"] -= 1
+        return {"key": key}
+
+    class Source6(_FakeSource):
         def list_partitions(self, force: bool = False) -> list[str]:
-            return ["a", "b", "c"] if force else ["a", "b"]
+            return [f"k{i}" for i in range(6)]
 
-    assert isinstance(FakeSource(), Source)
+    results = run_extraction(Source6(slow_extract), max_workers=2)
+    assert len(results) == 6
+    assert state["peak"] == 2
 
-    @flow
-    def drive(force: bool = False) -> list[dict]:
-        return run_extraction(FakeSource(), force=force)
 
-    with prefect_test_harness():
-        results = drive(force=False)
-        assert sorted(c[0] for c in calls) == ["a", "b"]
-        assert all(c[1] is False for c in calls)
-        assert len(results) == 2
+def test_run_extraction_retries_then_propagates(monkeypatch, tmp_path):
+    """A partition is retried; a partition that keeps failing fails the whole run."""
+    import pytest
 
-        calls.clear()
-        drive(force=True)
-        # force reaches both list_partitions (extra key "c") and each extract
-        assert sorted(c[0] for c in calls) == ["a", "b", "c"]
-        assert all(c[1] is True for c in calls)
+    _stub_env(monkeypatch, tmp_path)
+    from omicidx.prefect import source as source_mod
+    from omicidx.prefect.source import run_extraction
+
+    monkeypatch.setattr(source_mod, "RETRY_WAIT_SECONDS", 0)
+    attempts: dict[str, int] = {}
+
+    def flaky(key: str, force: bool = False) -> dict:
+        attempts[key] = attempts.get(key, 0) + 1
+        if key == "a" and attempts[key] < 2:
+            raise RuntimeError("transient")
+        if key == "c":
+            raise RuntimeError("permanent")
+        return {"key": key}
+
+    # "a" recovers on its retry, "b" is untouched, so force=False (keys a, b) passes.
+    assert len(run_extraction(_FakeSource(flaky), max_workers=2)) == 2
+    assert attempts["a"] == 2
+
+    # "c" never recovers: exhausts RETRY_ATTEMPTS, then the driver re-raises.
+    with pytest.raises(RuntimeError, match="permanent"):
+        run_extraction(_FakeSource(flaky), force=True, max_workers=2)
+    assert attempts["c"] == source_mod.RETRY_ATTEMPTS
 
 
 def test_semaphore_pending_keys(monkeypatch, tmp_path):

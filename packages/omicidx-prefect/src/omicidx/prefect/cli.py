@@ -67,9 +67,9 @@ def run() -> None:
 @run.command("sra")
 @click.option("--force", is_flag=True)
 def run_sra(force: bool) -> None:
-    from omicidx.prefect.flows.sra import sra_extract_flow
+    from omicidx.prefect.flows.sra import sra_extract
 
-    sra_extract_flow(force=force)
+    sra_extract(force=force)
 
 
 @run.command("geo")

@@ -1,0 +1,19 @@
+[Unit]
+Description=Daily NCBI SRA mirror extraction (cadence preserved from daily-pipeline)
+
+[Timer]
+# Daily, the cadence daily-pipeline already ran at (02:00 UTC) — #149 decided to
+# change the mechanism, not the rate. Moved an hour earlier and jittered so the
+# five domain timers stagger across the small hours instead of all firing at once;
+# they used to run *sequentially* inside one flow, so independent timers are a
+# real change in concurrent load. Suggested slotting for the followers:
+# sra 01:00, ebi_biosample 02:00, biosample 04:00, geo 06:00 (pubmed stays hourly).
+# The host is America/Denver, so UTC is stated explicitly.
+OnCalendar=*-*-* 01:00:00 UTC
+RandomizedDelaySec=1800
+# A missed night (box off) catches up on next boot. Cheap: every partition with a
+# semaphore is skipped, so a catch-up run costs one Mirroring glob if nothing is new.
+Persistent=true
+
+[Install]
+WantedBy=timers.target
