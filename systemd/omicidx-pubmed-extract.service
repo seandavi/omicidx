@@ -1,0 +1,37 @@
+# Follows the pilot in omicidx-sra-extract.service (#153); pattern decisions in #149.
+# Instance of the convention in monode/infrastructure's SCHEDULING.md.
+#
+# The module path still says `prefect` and no Prefect is involved: the rename
+# is #160, which has to touch every unit file anyway.
+[Unit]
+Description=Extract new NCBI PubMed baseline/update XML files to raw parquet on R2
+Documentation=https://github.com/seandavi/omicidx/issues/157
+After=network-online.target
+Wants=network-online.target
+OnFailure=ntfy-notify@%N.service
+# No Conflicts=: this fires hourly, so declaring a conflict with a daily heavy
+# job would just get pubmed killed (Conflicts= stops the loser, it does not
+# queue it). Pubmed is cheap — a no-op run is two FTP listings.
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/davsean/Documents/git/omicidx
+EnvironmentFile=/home/davsean/Documents/git/omicidx/.env
+# NOT `/usr/bin/env uv` — systemd --user gives a minimal PATH
+# (/usr/local/bin:/usr/local/sbin:/usr/bin:/usr/sbin) that excludes ~/.local/bin,
+# where uv is installed, so `env uv` exits 127 "No such file or directory".
+# `systemd-analyze verify` does NOT catch it — only actually starting the unit does.
+ExecStart=%h/.local/bin/uv run python -m omicidx.prefect.flows.pubmed run
+# RuntimeMaxSec= silently has no effect on Type=oneshot (systemd quirk) — use
+# TimeoutStartSec=.
+# The typical run is 2-3 seconds: two FTP listings, "0 partitions pending". An
+# incremental day is a handful of files. But once a year NCBI drops a fresh
+# baseline (~1,200 files, each downloaded, MEDLINE-parsed and written), and that
+# is the run this timeout has to survive without false-alarming. 4h, 12 files in
+# flight. A trigger that lands mid-run is a no-op — systemd will not start a unit
+# that is already active — and semaphores make the next run resume.
+TimeoutStartSec=14400
+Nice=10
+
+[Install]
+WantedBy=default.target

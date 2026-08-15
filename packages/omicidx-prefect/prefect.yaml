@@ -11,9 +11,15 @@
 # Schedules:
 #   - daily-pipeline:       02:00 UTC (full extract -> lake -> postgres -> build)
 #   - ducklake-maintenance: 04:00 UTC Sunday (cleanup + compact; no expiry — retention unbounded)
-#   - pubmed-extract:       hourly (poll FTP for new PubMed files)
 #   (geo-extract has no schedule of its own — daily-pipeline already runs it
 #   with the same parameters; a second 06:00 firing only stacked on the first.)
+#
+# Extracts are migrating off Prefect onto systemd --user timers (#149). The
+# `pubmed-extract` deployment is gone (#157): pubmed_extract is no longer a
+# @flow, so there is nothing to deploy. Its hourly cadence lives in
+# `systemd/omicidx-pubmed-extract.timer`. Removing the block from this file does
+# NOT unregister the live schedule — that has to be deleted through the API (see
+# systemd/README.md).
 
 name: omicidx-prefect
 prefect-version: 3.0.0
@@ -65,16 +71,6 @@ deployments:
     schedules:
       - cron: "0 4 * * 0"
         timezone: UTC
-        active: true
-
-  - name: pubmed-extract
-    description: Poll PubMed FTP for new files, extract any missing partitions.
-    entrypoint: src/omicidx/prefect/flows/pubmed.py:pubmed_extract_flow
-    work_pool:
-      name: default
-      work_queue_name: default
-    schedules:
-      - interval: 3600
         active: true
 
   - name: geo-extract

@@ -1,0 +1,17 @@
+[Unit]
+Description=Hourly NCBI PubMed extraction (cadence preserved from the pubmed-extract deployment)
+
+[Timer]
+# Hourly — the cadence the retired Prefect `pubmed-extract` deployment ran at
+# (`interval: 3600`). #149 decided to change the mechanism, not the rate; pubmed
+# is the one domain that is not daily. No timezone needed for an hourly unit.
+OnCalendar=hourly
+# Jitter off the top of the hour so we are not one more thing hitting the NCBI
+# FTP at :00. Small: an hourly poll should not drift far.
+RandomizedDelaySec=300
+# A missed hour (box off) catches up on next boot. Cheap: every file with a
+# semaphore is skipped, so a catch-up run costs two FTP listings if nothing is new.
+Persistent=true
+
+[Install]
+WantedBy=timers.target
