@@ -1,0 +1,15 @@
+[Unit]
+Description=Daily GEO metadata extraction (cadence preserved from daily-pipeline)
+
+[Timer]
+# 06:00 UTC, the slot #153 allocated GEO (sra 01:00, ebi_biosample 02:00,
+# biosample 04:00, geo 06:00; pubmed stays hourly). The host is
+# America/Denver, so UTC is stated explicitly.
+OnCalendar=*-*-* 06:00:00 UTC
+RandomizedDelaySec=1800
+# A missed night catches up on next boot. Cheap once the backfill is done:
+# every month with a semaphore is skipped, leaving only the current month.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

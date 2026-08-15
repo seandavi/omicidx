@@ -10,6 +10,7 @@ deployment artifacts. Convention (and the rationale for every field) lives in
 | `omicidx-sra-extract` | `python -m omicidx.prefect.flows.sra run` | daily 01:00 UTC (+≤30m jitter) |
 | `omicidx-ebi-biosample-extract` | `python -m omicidx.prefect.flows.ebi_biosample run` | daily 02:00 UTC (+≤30m jitter) |
 | `omicidx-biosample-extract` | `python -m omicidx.prefect.flows.biosample run` | daily 04:00 UTC (+≤30m jitter) |
+| `omicidx-geo-extract` | `python -m omicidx.prefect.flows.geo run` | daily 06:00 UTC (+≤30m jitter) |
 | `omicidx-pubmed-extract` | `python -m omicidx.prefect.flows.pubmed run` | hourly (+≤5m jitter) |
 
 `omicidx-biosample-extract` covers **both** NCBI full dumps (BioSample and
@@ -24,6 +25,12 @@ BioSample it had no Prefect deployment of its own — it only ran inside
 `daily-pipeline` — so removing it from `raw_extract_flow` was the whole cutover;
 nothing to delete API-side.
 
+`omicidx-geo-extract` also declares no `Conflicts=`, for the same reason: it is
+bandwidth-light (tens of thousands of small `acc.cgi` requests, <1 GB RSS). The
+only thing GEO cannot tolerate is another copy of *itself* on the same NCBI
+endpoint — that is exactly what wedged it (#154) — and `Type=oneshot` already
+guarantees one instance.
+
 `ntfy-notify@.service` and `notify-failure.sh` are **not** duplicated here — the
 shared template installed from `cdsci-lake/systemd/` is what every
 `OnFailure=ntfy-notify@%N.service` in this directory resolves to, and one topic
@@ -36,6 +43,7 @@ failed"; the failing unit name in the body is what identifies it.
 cp systemd/omicidx-sra-extract.{service,timer} ~/.config/systemd/user/
 cp systemd/omicidx-ebi-biosample-extract.{service,timer} ~/.config/systemd/user/
 cp systemd/omicidx-biosample-extract.{service,timer} ~/.config/systemd/user/
+cp systemd/omicidx-geo-extract.{service,timer} ~/.config/systemd/user/
 cp systemd/omicidx-pubmed-extract.{service,timer} ~/.config/systemd/user/
 # once, shared, if not already present:
 cp ~/Documents/git/cdsci-lake/systemd/ntfy-notify@.service ~/.config/systemd/user/
@@ -43,13 +51,14 @@ systemctl --user daemon-reload
 systemctl --user enable --now omicidx-sra-extract.timer
 systemctl --user enable --now omicidx-ebi-biosample-extract.timer
 systemctl --user enable --now omicidx-biosample-extract.timer
+systemctl --user enable --now omicidx-geo-extract.timer
 systemctl --user enable --now omicidx-pubmed-extract.timer
 ```
 
 Verify (substitute the unit you just installed):
 
 ```bash
-systemctl --user list-timers omicidx-biosample-extract.timer
+systemctl --user list-timers 'omicidx-*'
 systemctl --user start omicidx-biosample-extract.service   # one run by hand
 journalctl --user -u omicidx-biosample-extract.service -f
 ```
@@ -89,6 +98,24 @@ Extraction leaves no `lake_ops.run` row by design (#149): it writes raw files to
 R2 and adds no DuckLake snapshot, so the ledger is the per-partition semaphores
 (`omicidx-prefect semaphores list sra/study`, `... list biosample`), journald is
 the narrative, and ntfy is the failure signal. `ops.run` stays on the load side.
+
+## GEO: expect a backfill before it settles
+
+`omicidx-geo-extract` has 74 pending months when first installed — GEO has
+never gotten past `2020-07`. Each month is ~22 min, so the 6h `TimeoutStartSec`
+clears roughly 16 months a night and the run *will* hit that timeout (and fire
+an ntfy alert) for the first four or five nights. That is expected: semaphores
+make the next night resume where it stopped. Watch it drain with
+
+```bash
+omicidx-prefect semaphores list geo | head -1
+```
+
+To burn the backfill down faster, run it in the foreground with no deadline:
+
+```bash
+uv run python -m omicidx.prefect.flows.geo run   # resumable; ^C is safe
+```
 
 Copy, don't symlink: symlinked units go dangling when a repo moves, and systemd
 then fails to load them silently (this is exactly how `omicidx-sql-runner` died).
