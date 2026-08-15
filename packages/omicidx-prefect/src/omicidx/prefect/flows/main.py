@@ -24,7 +24,6 @@ from omicidx.prefect.flows.geo import geo_rna_seq_counts_flow
 from omicidx.prefect.flows.parquet_export import parquet_export_flow
 from omicidx.prefect.flows.postgres import postgres_load_flow
 from omicidx.prefect.flows.publish_bundle import publish_bundle_flow
-from omicidx.prefect.flows.pubmed import pubmed_extract_flow
 from omicidx.prefect.flows.transform import transform_flow
 
 from prefect import flow
@@ -54,7 +53,10 @@ def raw_extract_flow(force: bool = False) -> None:
     # `geo-extract` deployment and `omicidx-prefect run geo-extract`.
     geo_rna_seq_counts_flow()
     ebi_biosample_extract_flow(force=force)
-    pubmed_extract_flow(force=force)
+    # ponytail: pubmed-extract is deliberately absent. It now runs on its own
+    # systemd timer (`systemd/omicidx-pubmed-extract.timer`, hourly, the cadence
+    # its retired `pubmed-extract` deployment had); ad-hoc runs are
+    # `python -m omicidx.prefect.flows.pubmed run` or `omicidx-prefect run pubmed`.
 
 
 @flow(name="daily-pipeline", timeout_seconds=36000)

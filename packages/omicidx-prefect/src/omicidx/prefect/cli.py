@@ -101,9 +101,9 @@ def run_bioproject(force: bool) -> None:
 @run.command("pubmed")
 @click.option("--force", is_flag=True)
 def run_pubmed(force: bool) -> None:
-    from omicidx.prefect.flows.pubmed import pubmed_extract_flow
+    from omicidx.prefect.flows.pubmed import pubmed_extract
 
-    pubmed_extract_flow(force=force)
+    pubmed_extract(force=force)
 
 
 @run.command("ebi-biosample")

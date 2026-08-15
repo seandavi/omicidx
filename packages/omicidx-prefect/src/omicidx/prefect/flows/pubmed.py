@@ -1,11 +1,18 @@
-"""PubMed extract flow.
+"""PubMed extract: a standalone scheduled EL process (#157, following #153).
 
 Partitions are individual PubMed XML files (e.g., `pubmed25n0001`).
 Each file gets a semaphore under `_semaphores/pubmed/{file_id}.json`.
-The flow lists the NCBI FTP, maps an extract task across files whose
-semaphores are missing, and writes one parquet per file.
+The extractor lists the NCBI FTP and extracts every file whose semaphore is
+missing, writing one parquet per file.
+
+No orchestrator: run it as `python -m omicidx.prefect.flows.pubmed run` (that
+is what `systemd/omicidx-pubmed-extract.service` does), logs go to stdout ->
+journald, failures trip `OnFailure=ntfy-notify@%N.service`, and the semaphores
+are the per-partition ledger. The module path still says `prefect` only because
+the rename is #160.
 """
 
+import logging
 import re
 import shutil
 import tempfile
@@ -13,6 +20,7 @@ from datetime import datetime
 from functools import lru_cache
 from urllib.request import urlretrieve
 
+import click
 import pubmed_parser as pp
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -21,22 +29,29 @@ from omicidx.prefect.semaphore import SemaphoreStore
 from omicidx.prefect.source import run_extraction
 from upath import UPath
 
-from prefect import flow, get_run_logger, task
-from prefect.task_runners import ProcessPoolTaskRunner
+log = logging.getLogger(__name__)
 
 PUBMED_BASE = UPath("https://ftp.ncbi.nlm.nih.gov/pubmed")
 _XML_GZ_RE = re.compile(r"^(pubmed\d+n\d+)\.xml\.gz$")
+
+#: Concurrent PubMed files in flight. Was `ProcessPoolTaskRunner(max_workers=12)`;
+#: kept at 12 so the migration changes the mechanism, not the load on NCBI.
+#: ponytail: the driver's pool is threads, so the MEDLINE parse is now GIL-bound
+#: where it used to be truly parallel — irrelevant on the typical run (0 pending)
+#: and on incremental days (a handful of files), but an annual baseline drop
+#: (~1,200 files) will be download-bound-then-serial-parse. Swap the driver to a
+#: ProcessPoolExecutor if a baseline year ever runs long enough to matter.
+MAX_WORKERS = 12
 
 
 @lru_cache(maxsize=1)
 def _list_pubmed_files() -> dict[str, str]:
     """List PubMed XML files via HTTPS. Returns {partition_key: url_string}.
 
-    Cached per process: the extract tasks re-resolve a key's URL from this
-    index (a process pool means each worker lists once) so ``extract(key,
-    force)`` stays a uniform two-arg call without the URL leaking through it.
-    # ponytail: per-process re-list, not per-file; pass a prefetched index via
-    # a Prefect variable if the listing cost ever matters.
+    Cached per process: the extracts re-resolve a key's URL from this index so
+    ``extract(key, force)`` stays a uniform two-arg call without the URL leaking
+    through it. The driver's worker threads share this cache, so the FTP is
+    listed once per run.
     """
     result: dict[str, str] = {}
     for subdir in ["baseline", "updatefiles"]:
@@ -60,9 +75,11 @@ def _sanitize_utf8(obj):
     return obj
 
 
-@task(retries=2, retry_delay_seconds=30, task_run_name="pubmed-extract-{key}")
 def extract_pubmed_file(key: str, force: bool = False) -> dict:
-    log = get_run_logger()
+    """Extract a single PubMed XML file to parquet, gated by a semaphore.
+
+    Retries are the driver's (`run_extraction`), not this function's.
+    """
     sem = SemaphoreStore("pubmed")
     if not force and sem.exists(key):
         log.info(f"pubmed/{key}: semaphore exists, skipping")
@@ -135,22 +152,35 @@ class PubmedSource:
         return sorted(set(available) - done)
 
 
-@flow(
-    name="pubmed-extract",
-    task_runner=ProcessPoolTaskRunner(max_workers=12),
-)
-def pubmed_extract_flow(force: bool = False) -> None:
-    """Extract every PubMed file whose semaphore is missing.
-
-    Equivalent to the Dagster pubmed_sensor + pubmed_raw pair: the sensor's
-    job (poll FTP, identify new files) is folded into the source's
-    ``list_partitions``.
-    """
-    # Fresh FTP listing per run: the lru_cache must not persist across runs in
-    # a reused process (workers re-populate it once per run, per process).
+def pubmed_extract(force: bool = False, max_workers: int = MAX_WORKERS) -> list[dict]:
+    """Extract every PubMed file whose semaphore is missing."""
+    # Fresh FTP listing per run: the lru_cache dedups the listing within a run
+    # (threads share it) but must not persist across runs in a reused process.
     _list_pubmed_files.cache_clear()
-    run_extraction(PubmedSource(), force=force)
+    return run_extraction(PubmedSource(), force=force, max_workers=max_workers)
+
+
+@click.group()
+def cli() -> None:
+    """PubMed raw extraction (`python -m omicidx.prefect.flows.pubmed run`)."""
+
+
+@cli.command("run")
+@click.option("--force", is_flag=True, help="Re-extract every partition.")
+@click.option("--max-workers", default=MAX_WORKERS, show_default=True)
+def run_command(force: bool, max_workers: int) -> None:
+    """Extract every pending PubMed partition."""
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
+    )
+    results = pubmed_extract(force=force, max_workers=max_workers)
+    extracted = [r for r in results if not r.get("skipped")]
+    rows = sum(r.get("row_count", 0) for r in extracted)
+    click.echo(
+        f"pubmed: {len(extracted)} partitions extracted "
+        f"({len(results) - len(extracted)} skipped), {rows:,} rows"
+    )
 
 
 if __name__ == "__main__":
-    pubmed_extract_flow()
+    cli()
