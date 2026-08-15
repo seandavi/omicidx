@@ -132,11 +132,12 @@ Parquet, ADR-0004); `publish-bundle` builds the thin marts-only
 
 **Extraction and the downstream chain are decoupled.** Nothing downstream waits
 on an extract: the chain loads whatever raw is on R2 when it starts. That is
-the point of #149 — under the old single `daily-pipeline` flow, one wedged
-extract (GEO, 2020-07) held the publish hostage for a month.
+the point of #149 — under the old single `daily-pipeline` flow, GEO's crawl
+held the publish hostage for a month.
 
-GEO is migrated but deliberately unscheduled until #154/#174 resolve its wedge
-and backfill; run it by hand with `omicidx-prefect run geo`.
+GEO's timer is committed but not installed: 74 months (2020-07 onward) have
+never been extracted, and that ~27h backlog needs one foreground run first
+(#174). Run it by hand with `omicidx-prefect run geo`; it is resumable.
 
 ## Environment variables
 

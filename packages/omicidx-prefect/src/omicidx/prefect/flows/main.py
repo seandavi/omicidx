@@ -14,9 +14,9 @@ idempotent, so re-running from an earlier stage is also safe, just slower.
 
 Raw extraction is NOT here. Each domain is its own scheduled EL process on its
 own timer (#149) — `omicidx-{sra,pubmed,biosample,ebi-biosample}-extract` — so
-this chain loads whatever raw those timers have already landed on R2. GEO alone
-has no timer yet (#154/#174); until it does, GEO raw goes stale unless someone
-runs `omicidx-prefect run geo` by hand.
+this chain loads whatever raw those timers have already landed on R2. GEO's
+timer alone is not installed yet — it owes a 74-month backfill first (#174) —
+so GEO raw goes stale unless someone runs `omicidx-prefect run geo` by hand.
 """
 
 import logging

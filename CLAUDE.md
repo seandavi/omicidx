@@ -141,12 +141,12 @@ per-domain extract timers  ──(raw on R2)──▶  omicidx-downstream (one u
 ```
 
 Extraction and the downstream chain are **decoupled**: nothing downstream waits
-on an extract, so a wedged source can no longer hold the publish hostage (which
-is what GEO did for a month — #174).
+on an extract, so a slow or failing source can no longer hold the publish
+hostage (which is what GEO did for a month — #174).
 
 | Stage | Module | What it does |
 |---|---|---|
-| extracts | `flows/{sra,geo,biosample,ebi_biosample,pubmed}.py` | NCBI/EBI → raw Parquet/NDJSON on R2 (`PUBLISH_ROOT`), semaphore-gated. One timer each, `python -m omicidx.prefect.flows.<name> run`. **GEO has no timer** — migrated but unscheduled until #154/#174 fix its 2020-07 wedge and 74-month backfill. |
+| extracts | `flows/{sra,geo,biosample,ebi_biosample,pubmed}.py` | NCBI/EBI → raw Parquet/NDJSON on R2 (`PUBLISH_ROOT`), semaphore-gated. One timer each, `python -m omicidx.prefect.flows.<name> run`. **GEO's timer exists but is not installed** — 2020-07 onward (74 months) has never been extracted, and that ~27h backlog must be burned down in the foreground before enabling it (#174). 2020-07 was never a hang; #154 measured it at 22 min, zero errors. GEO is `MAX_WORKERS = 1` on purpose — more outer concurrency makes it *slower*. |
 | `ducklake-load` | `flows/ducklake*.py` | MERGE raw → `lake.omicidx.*` (hash-gated, copy-on-write; SRA high-water-mark incremental) |
 | `transform` | `flows/transform.py` + `transform/` (SQLMesh) | `plan(prod)` materializes `src`→`stg`→`geometadb.*`/`sradb.*` marts as views in the lake |
 | `parquet-export` | `flows/parquet_export.py` | Reverse-ETL: COPY lake tables **and marts** → public Parquet `r2://data-omicidx/latest/*.parquet` + `latest/{sradb,geometadb}/*.parquet` (ADR-0004) |
