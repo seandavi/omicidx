@@ -20,7 +20,13 @@ Conflicts=omicidx-biosample-extract.service
 Type=oneshot
 WorkingDirectory=/home/davsean/Documents/git/omicidx
 EnvironmentFile=/home/davsean/Documents/git/omicidx/.env
-ExecStart=/usr/bin/env uv run python -m omicidx.prefect.flows.sra run
+# NOT `/usr/bin/env uv` — systemd --user gives a minimal PATH
+# (/usr/local/bin:/usr/local/sbin:/usr/bin:/usr/sbin) that excludes ~/.local/bin,
+# where uv is installed, so `env uv` exits 127 "No such file or directory".
+# Verified live: this is why cdsci-lake's retractionwatch.service has failed every
+# night since it was installed. `systemd-analyze verify` does NOT catch it — only
+# actually starting the unit does.
+ExecStart=%h/.local/bin/uv run python -m omicidx.prefect.flows.sra run
 # RuntimeMaxSec= silently has no effect on Type=oneshot (systemd quirk, verified
 # with `systemd-analyze verify` for cdsci-lake) — use TimeoutStartSec=.
 # A no-op run (every semaphore present) finishes in a couple of minutes: just the
