@@ -85,17 +85,17 @@ def run_geo(start_month: str, end_month: str | None, force: bool) -> None:
 @run.command("biosample")
 @click.option("--force", is_flag=True)
 def run_biosample(force: bool) -> None:
-    from omicidx.prefect.flows.biosample import biosample_extract_flow
+    from omicidx.prefect.flows.biosample import biosample_extract
 
-    biosample_extract_flow(force=force)
+    biosample_extract(force=force)
 
 
 @run.command("bioproject")
 @click.option("--force", is_flag=True)
 def run_bioproject(force: bool) -> None:
-    from omicidx.prefect.flows.biosample import bioproject_extract_flow
+    from omicidx.prefect.flows.biosample import bioproject_extract
 
-    bioproject_extract_flow(force=force)
+    bioproject_extract(force=force)
 
 
 @run.command("pubmed")

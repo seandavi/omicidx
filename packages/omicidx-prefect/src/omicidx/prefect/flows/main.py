@@ -14,10 +14,6 @@ and the duckdb build. `consolidate.py` is dead once `parquet-export` is
 verified in prod.
 """
 
-from omicidx.prefect.flows.biosample import (
-    bioproject_extract_flow,
-    biosample_extract_flow,
-)
 from omicidx.prefect.flows.ducklake_load import ducklake_load_flow
 from omicidx.prefect.flows.ebi_biosample import ebi_biosample_extract_flow
 from omicidx.prefect.flows.geo import geo_rna_seq_counts_flow
@@ -39,8 +35,10 @@ def raw_extract_flow(force: bool = False) -> None:
     `daily-pipeline`. When the last one goes, `daily-pipeline` is nothing but
     the downstream chain, which is what #158 replaces.
     """
-    biosample_extract_flow(force=force)
-    bioproject_extract_flow(force=force)
+    # ponytail: biosample/bioproject-extract are deliberately absent. They are
+    # one standalone EL process (#155) on `systemd/omicidx-biosample-extract.timer`;
+    # ad-hoc runs are `python -m omicidx.prefect.flows.biosample run` or
+    # `omicidx-prefect run biosample` / `run bioproject`.
     # ponytail: sra-extract is deliberately absent. It is the pilot standalone
     # EL process (#153) and now runs on its own systemd timer
     # (`systemd/omicidx-sra-extract.timer`); ad-hoc runs are

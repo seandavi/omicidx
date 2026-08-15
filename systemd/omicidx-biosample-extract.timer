@@ -1,0 +1,17 @@
+[Unit]
+Description=Daily NCBI BioSample + BioProject full-dump extraction (cadence preserved from daily-pipeline)
+
+[Timer]
+# Daily, the cadence daily-pipeline already ran at — #149 decided to change the
+# mechanism, not the rate. 04:00 is this domain's slot in the #153 staggering
+# (sra 01:00, ebi_biosample 02:00, biosample 04:00, geo 06:00; pubmed hourly),
+# three hours clear of the sra job it Conflicts= with, since Conflicts= kills the
+# loser instead of queueing it. The host is America/Denver, so UTC is explicit.
+OnCalendar=*-*-* 04:00:00 UTC
+RandomizedDelaySec=1800
+# A missed night (box off) catches up on next boot. Cheap if today's run already
+# succeeded: the per-day semaphore short-circuits before any download.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

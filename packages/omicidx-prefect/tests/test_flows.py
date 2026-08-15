@@ -118,9 +118,14 @@ def _stub_env(monkeypatch, tmp_path):
 
 
 def test_real_sources_conform_to_protocol(monkeypatch, tmp_path):
-    """Every extract flow exposes a Source: name + list_partitions + extract."""
+    """Every *partitioned* extract flow exposes a Source: name + list_partitions + extract.
+
+    biosample/bioproject are absent on purpose: they are unpartitioned full
+    dumps (one file, overwritten per run), so #155 dropped their one-key Source
+    wrappers and calls `extract_*` directly. `test_unpartitioned_extracts_are_direct`
+    covers them instead.
+    """
     _stub_env(monkeypatch, tmp_path)
-    from omicidx.prefect.flows.biosample import BioprojectSource, BiosampleSource
     from omicidx.prefect.flows.ebi_biosample import EbiBiosampleSource
     from omicidx.prefect.flows.geo import GeoSource
     from omicidx.prefect.flows.pubmed import PubmedSource
@@ -132,13 +137,41 @@ def test_real_sources_conform_to_protocol(monkeypatch, tmp_path):
         GeoSource,
         PubmedSource,
         EbiBiosampleSource,
-        BiosampleSource,
-        BioprojectSource,
     ):
         s = cls()
         assert isinstance(s, Source), cls.__name__
         assert isinstance(s.name, str) and s.name
         assert callable(s.extract), f"{cls.__name__}.extract is not callable"
+
+
+def test_unpartitioned_extracts_are_direct(monkeypatch, tmp_path):
+    """biosample/bioproject: keyed by today, semaphore-gated, no fan-out driver."""
+    from datetime import date
+
+    _stub_env(monkeypatch, tmp_path)
+    from omicidx.prefect.flows import biosample as mod
+
+    calls: list[str] = []
+    monkeypatch.setattr(
+        mod,
+        "_extract_entity",
+        lambda **kw: (calls.append(kw["entity"]), {"row_count": 1})[1],
+    )
+    monkeypatch.setattr(mod, "bioproject_to_parquet", lambda: {"row_count": 1})
+
+    today = date.today().isoformat()
+    assert mod.biosample_extract()["key"] == today
+    assert mod.bioproject_extract()["key"] == today
+    assert calls == ["biosample", "bioproject"]
+
+    # Second run of the day is gated by the semaphore each extract just wrote.
+    assert mod.biosample_extract()["skipped"] is True
+    assert mod.bioproject_extract()["skipped"] is True
+    assert calls == ["biosample", "bioproject"]
+
+    # ...unless forced.
+    assert mod.biosample_extract(force=True)["skipped"] is False
+    assert calls == ["biosample", "bioproject", "biosample"]
 
 
 class _FakeSource:

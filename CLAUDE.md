@@ -135,10 +135,13 @@ raw-extract → ducklake-load → transform → parquet-export → postgres-load
 **Extracts are migrating off Prefect onto systemd `--user` timers** (#144/#149).
 `flows/sra.py` is the migrated pilot: no `@flow`/`@task`, stdlib logging, run as
 `python -m omicidx.prefect.flows.sra run`, scheduled by
-`systemd/omicidx-sra-extract.timer`, and removed from `raw_extract_flow`. The
-shared driver `source.py` is now orchestrator-neutral (bounded
-`ThreadPoolExecutor` + tenacity), so the remaining four domains keep working
-unchanged until their own tickets (#154–#157) strip their decorators too.
+`systemd/omicidx-sra-extract.timer`, and removed from `raw_extract_flow`.
+`flows/biosample.py` followed (#155) — one unit for **both** NCBI full dumps
+(BioSample + BioProject), `systemd/omicidx-biosample-extract.timer`; being
+unpartitioned, it calls its extracts directly instead of via `run_extraction`.
+The shared driver `source.py` is orchestrator-neutral (bounded
+`ThreadPoolExecutor` + tenacity), so any domain not yet migrated keeps working
+unchanged until its own ticket (#154–#157) strips its decorators too.
 | `ducklake-load` | `flows/ducklake*.py` | MERGE raw → `lake.omicidx.*` (hash-gated, copy-on-write; SRA high-water-mark incremental) |
 | `transform` | `flows/transform.py` + `transform/` (SQLMesh) | `plan(prod)` materializes `src`→`stg`→`geometadb.*`/`sradb.*` marts as views in the lake |
 | `parquet-export` | `flows/parquet_export.py` | Reverse-ETL: COPY lake tables **and marts** → public Parquet `r2://data-omicidx/latest/*.parquet` + `latest/{sradb,geometadb}/*.parquet` (ADR-0004) |

@@ -8,7 +8,13 @@ deployment artifacts. Convention (and the rationale for every field) lives in
 | Unit | Runs | Cadence |
 |---|---|---|
 | `omicidx-sra-extract` | `python -m omicidx.prefect.flows.sra run` | daily 01:00 UTC (+≤30m jitter) |
+| `omicidx-biosample-extract` | `python -m omicidx.prefect.flows.biosample run` | daily 04:00 UTC (+≤30m jitter) |
 | `omicidx-pubmed-extract` | `python -m omicidx.prefect.flows.pubmed run` | hourly (+≤5m jitter) |
+
+`omicidx-biosample-extract` covers **both** NCBI full dumps (BioSample and
+BioProject) in one unit: same machinery, two URLs, both unpartitioned. It and
+`omicidx-sra-extract` are the two heavy jobs and `Conflicts=` each other — which
+*stops* the loser rather than queueing it, hence the three-hour gap.
 
 `ntfy-notify@.service` and `notify-failure.sh` are **not** duplicated here — the
 shared template installed from `cdsci-lake/systemd/` is what every
@@ -20,21 +26,26 @@ failed"; the failing unit name in the body is what identifies it.
 
 ```bash
 cp systemd/omicidx-sra-extract.{service,timer} ~/.config/systemd/user/
+cp systemd/omicidx-biosample-extract.{service,timer} ~/.config/systemd/user/
 cp systemd/omicidx-pubmed-extract.{service,timer} ~/.config/systemd/user/
 # once, shared, if not already present:
 cp ~/Documents/git/cdsci-lake/systemd/ntfy-notify@.service ~/.config/systemd/user/
 systemctl --user daemon-reload
 systemctl --user enable --now omicidx-sra-extract.timer
+systemctl --user enable --now omicidx-biosample-extract.timer
 systemctl --user enable --now omicidx-pubmed-extract.timer
 ```
 
 Verify (substitute the unit you just installed):
 
 ```bash
-systemctl --user list-timers omicidx-sra-extract.timer
-systemctl --user start omicidx-sra-extract.service   # one run by hand
-journalctl --user -u omicidx-sra-extract.service -f
+systemctl --user list-timers omicidx-biosample-extract.timer
+systemctl --user start omicidx-biosample-extract.service   # one run by hand
+journalctl --user -u omicidx-biosample-extract.service -f
 ```
+
+**Start each unit once by hand before trusting it.** `systemd-analyze verify`
+only checks syntax; it passes a unit whose `ExecStart=` cannot be found at all.
 
 ### PubMed only: retire the Prefect schedule in the same change
 
@@ -66,8 +77,8 @@ Confirm with `prefect deployment ls` — no `pubmed-extract`, and
 
 Extraction leaves no `lake_ops.run` row by design (#149): it writes raw files to
 R2 and adds no DuckLake snapshot, so the ledger is the per-partition semaphores
-(`omicidx-prefect semaphores list sra/study`), journald is the narrative, and
-ntfy is the failure signal. `ops.run` stays on the load side.
+(`omicidx-prefect semaphores list sra/study`, `... list biosample`), journald is
+the narrative, and ntfy is the failure signal. `ops.run` stays on the load side.
 
 Copy, don't symlink: symlinked units go dangling when a repo moves, and systemd
 then fails to load them silently (this is exactly how `omicidx-sql-runner` died).

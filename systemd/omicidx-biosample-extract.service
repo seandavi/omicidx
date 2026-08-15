@@ -1,0 +1,47 @@
+# NCBI BioSample + BioProject as one standalone scheduled EL process (#155),
+# following the pilot in omicidx-sra-extract.service (#153). Convention:
+# monode/infrastructure's SCHEDULING.md.
+#
+# The module path still says `prefect` and no Prefect is involved: the rename
+# is #160, which has to touch every unit file anyway.
+#
+# One unit for both sources on purpose. They are the same machinery over two
+# URLs (biosample_set.xml.gz, bioproject.xml), each a single unpartitioned file
+# gated by a per-day semaphore, and ducklake-load consumes them together. A
+# second timer slot and a second Conflicts= pairing would buy nothing: running
+# them back to back in one unit is what daily-pipeline already did.
+[Unit]
+Description=Extract the NCBI BioSample and BioProject full dumps to raw JSONL on R2
+Documentation=https://github.com/seandavi/omicidx/issues/155
+After=network-online.target
+Wants=network-online.target
+OnFailure=ntfy-notify@%N.service
+# biosample_set.xml.gz is multi-GB and streams through a Python parser; the SRA
+# job crawls the full mirror. Together they contend for bandwidth and memory.
+# Same precedent as pmc/openalex in SCHEDULING.md §4, and the counterpart of the
+# Conflicts= line already in omicidx-sra-extract.service. Conflicts= *stops* the
+# loser rather than queueing it, which is why the OnCalendar slots (01:00 vs
+# 04:00) are three hours apart.
+Conflicts=omicidx-sra-extract.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/davsean/Documents/git/omicidx
+EnvironmentFile=/home/davsean/Documents/git/omicidx/.env
+# NOT `/usr/bin/env uv` — systemd --user gives a minimal PATH
+# (/usr/local/bin:/usr/local/sbin:/usr/bin:/usr/sbin) that excludes ~/.local/bin,
+# where uv is installed, so `env uv` exits 127. `systemd-analyze verify` does NOT
+# catch it — only actually starting the unit does (#153, and cdsci-lake's
+# retractionwatch.service has failed every night on exactly this).
+ExecStart=%h/.local/bin/uv run python -m omicidx.prefect.flows.biosample run
+# RuntimeMaxSec= silently has no effect on Type=oneshot — use TimeoutStartSec=.
+# This is the heavy job: a multi-GB gzip download plus a full streaming XML parse
+# of ~40M BioSample records into JSONL, then the same for BioProject, then a
+# DuckDB JSONL->parquet pass. Unlike SRA there is no partitioning to resume from,
+# so a timeout throws away the whole night's work — size it well past a slow-FTP
+# night. 10h.
+TimeoutStartSec=36000
+Nice=10
+
+[Install]
+WantedBy=default.target
