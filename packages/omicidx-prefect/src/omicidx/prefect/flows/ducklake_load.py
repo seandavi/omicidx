@@ -39,7 +39,10 @@ from omicidx.prefect.flows.sources import OMICIDX_SOURCES
 from prefect import flow
 
 
-@flow(name="ducklake-load")
+# ponytail: timeouts are sized ~3x the slowest completed run in Prefect's
+# history, purely to stop orphans (a ducklake-load once sat Running 35 days).
+# Not a SLA — raise the number if a legitimate run ever trips it.
+@flow(name="ducklake-load", timeout_seconds=14400)  # slowest completed: 78m
 def ducklake_load_flow(lake_schema: str = LAKE_SCHEMA, force: bool = False) -> None:
     """Upsert every entity's raw data into the DuckLake catalog.
 

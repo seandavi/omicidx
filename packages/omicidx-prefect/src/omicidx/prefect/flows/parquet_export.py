@@ -150,7 +150,7 @@ def prune_dated_folders(keep_date: str) -> list[str]:
     return removed
 
 
-@flow(name="parquet-export")
+@flow(name="parquet-export", timeout_seconds=7200)  # slowest completed: 31m
 def parquet_export_flow(date: str | None = None, lake_schema: str = LAKE_SCHEMA) -> str:
     """Export every core lake table to v{date}/ + latest/, prune old folders.
 

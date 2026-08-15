@@ -218,7 +218,7 @@ def upload_bundle(
     return {"uploaded": [n for _, n in small] + ["data/"]}
 
 
-@flow(name="publish-bundle")
+@flow(name="publish-bundle", timeout_seconds=14400)  # slowest completed: 75m
 def publish_bundle_flow(
     date: str | None = None, tables: list[tuple[str, str]] | None = None
 ) -> dict:
