@@ -1,6 +1,8 @@
-"""Smoke tests: every flow module imports cleanly and registers its flows.
+"""Smoke tests: every pipeline module imports cleanly.
 
-A failure here means the worker would fail to load the deployment.
+Cheap, but it is the check that catches a stale import after a refactor —
+including the Prefect excision (#158), where an import that still reached for
+`prefect` would only have failed at 05:00 UTC on the timer otherwise.
 """
 
 import importlib
@@ -11,7 +13,6 @@ FLOW_MODULES = [
     "omicidx.prefect.flows.biosample",
     "omicidx.prefect.flows.pubmed",
     "omicidx.prefect.flows.ebi_biosample",
-    "omicidx.prefect.flows.consolidate",
     "omicidx.prefect.flows.ducklake",
     "omicidx.prefect.flows.ducklake_biosample",
     "omicidx.prefect.flows.ducklake_geo",
@@ -23,6 +24,9 @@ FLOW_MODULES = [
     "omicidx.prefect.flows.ducklake_load",
     "omicidx.prefect.flows.postgres",
     "omicidx.prefect.flows.sql",
+    "omicidx.prefect.flows.parquet_export",
+    "omicidx.prefect.flows.publish_bundle",
+    "omicidx.prefect.flows.transform",
     "omicidx.prefect.flows.main",
 ]
 
@@ -297,3 +301,53 @@ def test_semaphore_pending_keys(monkeypatch, tmp_path):
     assert store.pending_keys(candidates, always=["2005-02"]) == ["2005-02", "2005-03"]
     # force keeps everything
     assert store.pending_keys(candidates, force=True) == candidates
+
+
+def test_run_id_is_stable_and_prefers_systemd_invocation():
+    """The lake-snapshot run id survives Prefect's removal (#158)."""
+    import importlib
+
+    from omicidx.prefect import run
+
+    assert run.run_id() == run.run_id()  # one id per process, not per call
+
+    import os
+
+    os.environ["INVOCATION_ID"] = "abc123"
+    try:
+        # systemd's per-start id wins, so a snapshot maps to `journalctl
+        # _SYSTEMD_INVOCATION_ID=<id>`.
+        assert importlib.reload(run).run_id() == "abc123"
+    finally:
+        del os.environ["INVOCATION_ID"]
+        importlib.reload(run)
+
+
+def test_retry_gives_one_second_attempt_then_gives_up():
+    """`retry` replaces `@task(retries=1, retry_delay_seconds=60)`: 2 attempts."""
+    import pytest
+    import tenacity
+    from omicidx.prefect.run import retry
+
+    attempts = []
+
+    @retry
+    def always_fails() -> None:
+        attempts.append(1)
+        raise RuntimeError("nope")
+
+    # Same policy, no 60s wait between attempts.
+    with pytest.raises(RuntimeError, match="nope"):
+        always_fails.retry_with(wait=tenacity.wait_fixed(0))()
+    assert len(attempts) == 2
+
+    attempts.clear()
+
+    @retry
+    def fails_once() -> str:
+        attempts.append(1)
+        if len(attempts) < 2:
+            raise RuntimeError("transient")
+        return "ok"
+
+    assert fails_once.retry_with(wait=tenacity.wait_fixed(0))() == "ok"

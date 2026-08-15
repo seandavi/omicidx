@@ -1,0 +1,35 @@
+# The whole post-extraction chain, in one unit (#158): lake load -> transform
+# -> parquet export -> postgres load -> publish bundle. This is what replaced
+# the Prefect `daily-pipeline` deployment and the `omicidx-prefect-worker`
+# container that executed it (#160).
+[Unit]
+Description=Load the omicidx DuckLake from raw, transform, export, serve, and publish
+Documentation=https://github.com/seandavi/omicidx/issues/158
+After=network-online.target
+Wants=network-online.target
+OnFailure=ntfy-notify@%N.service
+# No Conflicts= with the extract units, deliberately. Conflicts= *stops* the
+# other unit, and killing a 3-hour BioSample pull at 05:00 to start the load is
+# strictly worse than letting both run. Overlap is safe because every extract
+# stages its output locally and then writes the finished object to R2 in one
+# shot: a concurrent reader sees the previous complete object, never a partial
+# one. So a still-running extract costs at most a day of freshness on that one
+# source, not a torn read. Ordering here is by clock, not by dependency.
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/davsean/Documents/git/omicidx
+EnvironmentFile=/home/davsean/Documents/git/omicidx/.env
+# NOT `/usr/bin/env uv` — systemd --user gives a minimal PATH that excludes
+# ~/.local/bin. See the note in omicidx-sra-extract.service.
+ExecStart=%h/.local/bin/uv run python -m omicidx.prefect.flows.main run
+# RuntimeMaxSec= silently has no effect on Type=oneshot — use TimeoutStartSec=.
+# Sized from the per-stage Prefect history, which is the only runtime evidence
+# there is: postgres-load 8.7h worst case, ducklake-load 78m, parquet-export
+# 31m, publish-bundle 75m — ~12h stacked. 16h leaves headroom for a slow night
+# without letting a hung stage sit until tomorrow's run collides with it.
+TimeoutStartSec=57600
+Nice=10
+
+[Install]
+WantedBy=default.target

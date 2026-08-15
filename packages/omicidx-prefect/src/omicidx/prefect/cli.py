@@ -1,7 +1,9 @@
-"""Command-line helpers for omicidx-prefect.
+"""Operator CLI for the omicidx pipeline.
 
-Most operations go through `prefect deployment run ...`. This CLI
-covers semaphore inspection and ad-hoc local flow runs.
+Scheduled runs go through systemd --user timers (`systemd/README.md`); this
+CLI is the ad-hoc and recovery path for the same code. Every `run` subcommand
+calls exactly what the corresponding timer calls, so a stage that failed
+overnight is re-run by hand with `omicidx-prefect run <stage>`.
 """
 
 import click
@@ -116,13 +118,6 @@ def run_ebi_biosample(start_day: str, end_day: str | None, force: bool) -> None:
     ebi_biosample_extract(start_day=start_day, end_day=end_day, force=force)
 
 
-@run.command("consolidate")
-def run_consolidate() -> None:
-    from omicidx.prefect.flows.consolidate import consolidate_flow
-
-    consolidate_flow()
-
-
 @run.command("ducklake-load")
 @click.option("--lake-schema", default=None, help="Override target lake schema.")
 def run_ducklake_load(lake_schema: str | None) -> None:
@@ -131,9 +126,9 @@ def run_ducklake_load(lake_schema: str | None) -> None:
     For a full rebuild from raw instead, use `reproduce-from-raw`.
     """
     from omicidx.prefect.flows.ducklake import LAKE_SCHEMA
-    from omicidx.prefect.flows.ducklake_load import ducklake_load_flow
+    from omicidx.prefect.flows.ducklake_load import ducklake_load
 
-    ducklake_load_flow(lake_schema=lake_schema or LAKE_SCHEMA)
+    ducklake_load(lake_schema=lake_schema or LAKE_SCHEMA)
 
 
 @run.command("reproduce-from-raw")
@@ -151,66 +146,68 @@ def run_reproduce_from_raw(lake_schema: str | None) -> None:
     incremental load.
     """
     from omicidx.prefect.flows.ducklake import LAKE_SCHEMA
-    from omicidx.prefect.flows.ducklake_load import ducklake_load_flow
+    from omicidx.prefect.flows.ducklake_load import ducklake_load
 
-    ducklake_load_flow(lake_schema=lake_schema or LAKE_SCHEMA, force=True)
+    ducklake_load(lake_schema=lake_schema or LAKE_SCHEMA, force=True)
 
 
 @run.command("ducklake-maintenance")
 def run_ducklake_maintenance() -> None:
-    from omicidx.prefect.flows.ducklake_load import ducklake_maintenance_flow
+    from omicidx.prefect.flows.ducklake import ducklake_maintenance
 
-    ducklake_maintenance_flow()
+    ducklake_maintenance()
 
 
 @run.command("parquet-export")
 @click.option("--lake-schema", default=None, help="Override source lake schema.")
 def run_parquet_export(lake_schema: str | None) -> None:
     from omicidx.prefect.flows.ducklake import LAKE_SCHEMA
-    from omicidx.prefect.flows.parquet_export import parquet_export_flow
+    from omicidx.prefect.flows.parquet_export import parquet_export
 
-    parquet_export_flow(lake_schema=lake_schema or LAKE_SCHEMA)
+    parquet_export(lake_schema=lake_schema or LAKE_SCHEMA)
 
 
 @run.command("publish-bundle")
 @click.option("--date", default=None, help="Bundle date (default: today UTC).")
 def run_publish_bundle(date: str | None) -> None:
     """Build the external frozen bundle. Run after parquet-export."""
-    from omicidx.prefect.flows.publish_bundle import publish_bundle_flow
+    from omicidx.prefect.flows.publish_bundle import publish_bundle
 
-    publish_bundle_flow(date=date)
+    publish_bundle(date=date)
 
 
 @run.command("transform")
 @click.option("--environment", default="prod", help="SQLMesh environment.")
 def run_transform(environment: str) -> None:
     """Apply the SQLMesh marts into the lake (plan --auto-apply). Run after ducklake-load."""
-    from omicidx.prefect.flows.transform import transform_flow
+    from omicidx.prefect.flows.transform import transform
 
-    transform_flow(environment=environment)
+    transform(environment=environment)
 
 
 @run.command("postgres")
 def run_postgres() -> None:
-    from omicidx.prefect.flows.postgres import postgres_load_flow
+    from omicidx.prefect.flows.postgres import postgres_load
 
-    postgres_load_flow()
+    postgres_load()
 
 
 @run.command("duckdb")
 def run_duckdb() -> None:
-    from omicidx.prefect.flows.sql import omicidx_duckdb_flow
+    from omicidx.prefect.flows.sql import build_omicidx_duckdb
 
-    omicidx_duckdb_flow()
+    build_omicidx_duckdb()
 
 
 @run.command("daily")
-@click.option("--force", is_flag=True)
-def run_daily(force: bool) -> None:
-    """Full daily pipeline: extract -> ducklake-load -> transform -> parquet-export -> postgres -> publish-bundle."""
-    from omicidx.prefect.flows.main import daily_pipeline_flow
+def run_daily() -> None:
+    """The downstream chain: ducklake-load -> transform -> parquet-export -> postgres -> publish-bundle.
 
-    daily_pipeline_flow(force=force)
+    Extraction is NOT included — each domain runs on its own timer (#149).
+    """
+    from omicidx.prefect.flows.main import daily_pipeline
+
+    daily_pipeline()
 
 
 if __name__ == "__main__":

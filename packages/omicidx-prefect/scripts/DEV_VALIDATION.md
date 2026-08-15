@@ -28,12 +28,12 @@ PY
 ## 2. Run the load against the dev schema
 ```bash
 uv run --package omicidx-prefect python - <<'PY'
-from omicidx.prefect.flows.ducklake_load import ducklake_load_flow
-ducklake_load_flow(lake_schema="omicidx_dev")
+from omicidx.prefect.flows.ducklake_load import ducklake_load
+ducklake_load(lake_schema="omicidx_dev")
 PY
 ```
-(For a quick smoke, call a single small loader inside a `@flow` instead, e.g.
-`bioproject_to_ducklake(lake_schema="omicidx_dev")`.)
+(For a quick smoke, call a single small loader instead, e.g.
+`bioproject_to_ducklake(lake_schema="omicidx_dev")` — they are plain functions.)
 
 ## 3. Verify
 ```bash

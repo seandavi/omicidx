@@ -9,14 +9,16 @@ users can `.read` it directly against the public Parquet.
 """
 
 import json
+import logging
 import shutil
 from datetime import datetime
 from pathlib import Path
 
 from omicidx.prefect.config import get_duckdb_connection, get_upath, settings
 from omicidx.prefect.flows.parquet_export import MART_EXPORTS
+from omicidx.prefect.run import retry
 
-from prefect import flow, get_run_logger, task
+log = logging.getLogger(__name__)
 
 DB_FILE = "omicidx.duckdb"
 MART_SCHEMAS = sorted({schema for schema, _ in MART_EXPORTS})
@@ -54,7 +56,6 @@ def build_duckdb_local(db_file: str = DB_FILE) -> dict:
     Callers own the upload target (the bundle publisher uploads it into the
     frozen bundle).
     """
-    log = get_run_logger()
     db_path = Path(db_file)
     if db_path.exists():
         db_path.unlink()
@@ -97,10 +98,9 @@ def build_duckdb_local(db_file: str = DB_FILE) -> dict:
     }
 
 
-@task(retries=1, retry_delay_seconds=60)
+@retry
 def build_omicidx_duckdb() -> dict:
     """Build the omicidx.duckdb file and upload it to R2/S3."""
-    log = get_run_logger()
     built = build_duckdb_local()
     db_path: Path = built["db_path"]
 
@@ -122,10 +122,5 @@ def build_omicidx_duckdb() -> dict:
     }
 
 
-@flow(name="omicidx-duckdb-build")
-def omicidx_duckdb_flow() -> None:
-    build_omicidx_duckdb()
-
-
 if __name__ == "__main__":
-    omicidx_duckdb_flow()
+    build_omicidx_duckdb()

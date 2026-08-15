@@ -2,7 +2,7 @@
 
 One `ops.Source` per omicidx *source* (not per lake table — many tables share a
 source, e.g. sra_study/sample/experiment/run all come from `sra`). Registered
-under producer `omicidx` at the top of `ducklake_load_flow` via
+under producer `omicidx` at the top of `ducklake_load` via
 `ops.register_sources`, which is idempotent and self-healing.
 
 Sources default to the `omicidx` lake schema; every loader accepts a `lake_schema`

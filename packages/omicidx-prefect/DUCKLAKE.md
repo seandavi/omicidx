@@ -134,8 +134,13 @@ COMMIT;
 
 - The stamp **must share the DML transaction** — DuckLake clears it on
   commit, so an auto-committed statement loses it.
-- Conventions: `author = 'prefect:ducklake-load'`,
-  `extra_info` = JSON `{prefect_run_id, ...}`.
+- Conventions: `author = 'omicidx:ducklake-load'`,
+  `extra_info` = JSON `{run_id, ...}`, where `run_id` is systemd's
+  `INVOCATION_ID` on a scheduled run — so `journalctl
+  _SYSTEMD_INVOCATION_ID=<id>` finds the log for a given snapshot.
+  Snapshots written before the Prefect excision (#158) carry the older
+  `author = 'prefect:ducklake-load'` / `prefect_run_id` shape instead; those
+  ids died with the Prefect server and no longer resolve to anything.
 - A no-op write produces **no** snapshot, so the stamp simply doesn't land
   when nothing changed.
 

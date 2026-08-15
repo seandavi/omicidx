@@ -38,7 +38,7 @@ Invariants that follow from the finalized decisions:
 ## Repo structure
 
 This is a **uv workspace** consolidating four packages (`omicidx-dagster` was
-retired 2026-07; Prefect is the sole orchestrator):
+retired 2026-07, Prefect excised 2026-08):
 
 ```
 omicidx/                        # workspace root (no package of its own)
@@ -49,8 +49,8 @@ omicidx/                        # workspace root (no package of its own)
     │   └── src/omicidx/parsers/
     ├── omicidx-etl/            # Legacy `oidx` extractors (NCBI→raw). Superseded by
     │   └── src/omicidx/etl/    #   omicidx-prefect except europepmc/icite/nih_reporter (unported)
-    ├── omicidx-prefect/        # Prefect 3 pipeline (DuckLake) — the sole live orchestrator
-    │   └── src/omicidx/prefect/
+    ├── omicidx-prefect/        # EL + transform pipeline (DuckLake), systemd-scheduled
+    │   └── src/omicidx/prefect/  #   name is vestigial — no Prefect since #158/#160
     └── omicidx-api/            # Read-only FastAPI REST API backed by PostgreSQL
         └── src/omicidx/api/
 ```
@@ -120,30 +120,33 @@ Configuration is via `omicidx.etl.config.Settings` (pydantic-settings), loaded f
 
 ### omicidx-prefect
 
-Prefect 3 pipeline on the DuckLake substrate — the sole live orchestrator
-(reimplements the retired omicidx-dagster pipeline). Partition state lives in
-**semaphore JSON files** in the storage bucket. Pipeline:
+The EL + transform pipeline on the DuckLake substrate. **There is no
+orchestrator** (#158/#160, 2026-08-15): Prefect is fully excised — no server, no
+worker container, no `prefect.yaml`, no `@flow`/`@task`, not even the
+dependency. Dagster went the same way in 2026-07. The package name is now the
+only Prefect artifact left; renaming it is deferred churn.
+
+Every job is a plain Python process on a systemd `--user` timer. `run.py`
+supplies the two things the decorators used to (`run_id()` from systemd's
+`INVOCATION_ID`; a tenacity `retry`), `source.py` the fan-out driver.
+Partition state lives in **semaphore JSON files** in the storage bucket — never
+in an orchestrator's database, which is why dropping two orchestrators cost
+nothing. Unit table + install steps: `systemd/README.md`.
 
 ```
-raw-extract → ducklake-load → transform → parquet-export → postgres-load → duckdb-build
+per-domain extract timers  ──(raw on R2)──▶  omicidx-downstream (one unit)
+                                             ducklake-load → transform →
+                                             parquet-export → postgres-load →
+                                             publish-bundle
 ```
+
+Extraction and the downstream chain are **decoupled**: nothing downstream waits
+on an extract, so a wedged source can no longer hold the publish hostage (which
+is what GEO did for a month — #174).
 
 | Stage | Module | What it does |
 |---|---|---|
-| `raw-extract` | `flows/{sra,geo,biosample,ebi_biosample,pubmed}.py` | NCBI/EBI → raw Parquet/NDJSON on R2 (`PUBLISH_ROOT`), semaphore-gated |
-
-**Extracts are migrating off Prefect onto systemd `--user` timers** (#144/#149).
-`flows/sra.py` is the migrated pilot: no `@flow`/`@task`, stdlib logging, run as
-`python -m omicidx.prefect.flows.sra run`, scheduled by
-`systemd/omicidx-sra-extract.timer`, and removed from `raw_extract_flow`.
-`flows/biosample.py` followed (#155) — one unit for **both** NCBI full dumps
-(BioSample + BioProject), `systemd/omicidx-biosample-extract.timer`; being
-unpartitioned, it calls its extracts directly instead of via `run_extraction`.
-`flows/pubmed.py` (#157, hourly) and `flows/ebi_biosample.py` (#156, daily 02:00
-UTC) followed the same way, both still fanning out through `run_extraction`.
-The shared driver `source.py` is orchestrator-neutral (bounded
-`ThreadPoolExecutor` + tenacity), so any domain not yet migrated keeps working
-unchanged until its own ticket (#154–#157) strips its decorators too.
+| extracts | `flows/{sra,geo,biosample,ebi_biosample,pubmed}.py` | NCBI/EBI → raw Parquet/NDJSON on R2 (`PUBLISH_ROOT`), semaphore-gated. One timer each, `python -m omicidx.prefect.flows.<name> run`. **GEO has no timer** — migrated but unscheduled until #154/#174 fix its 2020-07 wedge and 74-month backfill. |
 | `ducklake-load` | `flows/ducklake*.py` | MERGE raw → `lake.omicidx.*` (hash-gated, copy-on-write; SRA high-water-mark incremental) |
 | `transform` | `flows/transform.py` + `transform/` (SQLMesh) | `plan(prod)` materializes `src`→`stg`→`geometadb.*`/`sradb.*` marts as views in the lake |
 | `parquet-export` | `flows/parquet_export.py` | Reverse-ETL: COPY lake tables **and marts** → public Parquet `r2://data-omicidx/latest/*.parquet` + `latest/{sradb,geometadb}/*.parquet` (ADR-0004) |
@@ -152,7 +155,8 @@ unchanged until its own ticket (#154–#157) strips its decorators too.
 
 - Config: `config.py` (`Settings` + `get_ducklake_connection`, `get_public_parquet_path`, etc.). Key env: `PUBLISH_ROOT`, `DUCKLAKE_URI`, `DUCKLAKE_DATA_PATH`, `PUBLIC_PARQUET_ROOT`, `PUBLIC_PARQUET_HTTPS_BASE`, `POSTGRES_URI`.
 - Catalog topology + MERGE/maintenance conventions: `DUCKLAKE.md`. Public-serving contract: `docs/adrs/0004`.
-- Operator CLI `omicidx-prefect` (`cli.py`); deployments in `prefect.yaml`; worker-only `docker-compose.yml` joins the shared monode `prefect-server`.
+- Operator CLI `omicidx-prefect` (`cli.py`) is the ad-hoc/recovery path: every `run` subcommand calls exactly what the matching timer calls, so a stage that failed overnight is re-run by hand (`omicidx-prefect run transform`, `... run postgres`). All stages are idempotent.
+- The units run on the **host**, so `.env` uses `127.0.0.1:5432` for both `POSTGRES_URI` and `DUCKLAKE_URI`. The old `pg_main` container-hostname split died with the worker.
 
 ### omicidx-api
 
@@ -186,10 +190,9 @@ NCBI/EBI → omicidx-parsers (XML → Pydantic) → omicidx-prefect raw-extract 
 ### GitHub Actions
 
 The only active workflow is root `.github/workflows/ci.yaml` (ruff + tests on
-push). The daily pipeline runs on the Prefect worker, not CI (deployments in
-`packages/omicidx-prefect/prefect.yaml`). The legacy `oidx`-based extraction and
-`build-db` cron workflows were retired 2026-07 when Prefect became the sole
-orchestrator.
+push). No pipeline runs in CI: everything scheduled is a systemd `--user` timer
+on onclappc02 (`systemd/README.md`). The legacy `oidx`-based extraction and
+`build-db` cron workflows were retired 2026-07.
 
 ## Environment / secrets
 

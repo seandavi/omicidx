@@ -1,6 +1,6 @@
 """Frozen publisher (spec §2, Stage B2/B4): the external daily bundle.
 
-Deep module, narrow interface: ``publish_bundle_flow(date) -> attested bundle
+Deep module, narrow interface: ``publish_bundle(date) -> attested bundle
 at v{date}/ and latest/``. Hides which tables ship, the read-only file-catalog
 generation, the omicidx.duckdb build, views.sql co-publish, manifest emission,
 and the dated/rolling layout.
@@ -32,6 +32,7 @@ flat Parquet as the catalog's data files — add when bundle storage/egress hurt
 """
 
 import json
+import logging
 import os
 import subprocess
 import tempfile
@@ -51,7 +52,7 @@ from omicidx.prefect.flows.parquet_export import EXPORTS
 from omicidx.prefect.flows.sql import build_duckdb_local
 from omicidx.prefect.semaphore import SemaphoreStore
 
-from prefect import flow, get_run_logger, task
+log = logging.getLogger(__name__)
 
 # Semaphore namespaces to summarize in the manifest (DUCKLAKE.md raw-partition
 # table). SRA fans out per entity under sra/<entity>.
@@ -107,7 +108,6 @@ def build_file_catalog(date: str, tables: list[tuple[str, str]], workdir: Path) 
     of ``v{date}/data/`` so anonymous clients resolve data files over range
     reads (verified end-to-end; the client supplies no credentials).
     """
-    log = get_run_logger()
     https_base = settings().public_parquet_https_base
     if not https_base:
         raise RuntimeError("PUBLIC_PARQUET_HTTPS_BASE is not set")
@@ -166,7 +166,6 @@ def build_manifest(date: str, summaries: list[dict]) -> dict:
     }
 
 
-@task
 def upload_bundle(
     date: str, workdir: Path, manifest: dict, db_path: Path, views_sql: str
 ) -> dict:
@@ -176,7 +175,6 @@ def upload_bundle(
     ``latest/`` catalog references it by absolute URL, so latest carries only
     the small files (catalog, duckdb, views.sql, manifest).
     """
-    log = get_run_logger()
 
     def _put_file(local: Path, *parts: str) -> None:
         # fs.put_file chunks the local file into uniform multipart parts; a
@@ -218,8 +216,7 @@ def upload_bundle(
     return {"uploaded": [n for _, n in small] + ["data/"]}
 
 
-@flow(name="publish-bundle", timeout_seconds=14400)  # slowest completed: 75m
-def publish_bundle_flow(
+def publish_bundle(
     date: str | None = None, tables: list[tuple[str, str]] | None = None
 ) -> dict:
     """Publish the external frozen bundle for ``date`` (default: today UTC).
@@ -227,7 +224,6 @@ def publish_bundle_flow(
     Depends on ``parquet-export`` having written v{date}/*.parquet. Pass
     ``tables`` (subset of EXPORTS) to publish a partial catalog for testing.
     """
-    log = get_run_logger()
     date = date or publish_date()
     tables = tables or EXPORTS
 
@@ -246,4 +242,4 @@ def publish_bundle_flow(
 
 
 if __name__ == "__main__":
-    publish_bundle_flow()
+    publish_bundle()

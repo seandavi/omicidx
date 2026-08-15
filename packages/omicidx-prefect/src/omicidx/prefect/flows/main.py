@@ -1,90 +1,71 @@
-"""Top-level pipeline flows.
+"""The downstream pipeline: everything after raw extraction (#158).
 
-`daily_pipeline_flow` runs the raw extracts, then the DuckLake load
-(MERGE raw → lake.omicidx.*), then the parquet export (lake → public
-Parquet, the reverse-ETL), then the postgres loads (which read the lake
-directly), then the duckdb build (which reads the exported Parquet). Each
-step is a subflow, so failure of one stage halts the rest with full
-visibility.
+    lake load → transform → parquet export → postgres load → publish bundle
 
-The old `consolidate` step (raw → consolidated parquet) is fully replaced
-by `ducklake-load` + `parquet-export`: the lake is the single source of
-truth, and `parquet-export` COPYs the merged tables out for public serving
-and the duckdb build. `consolidate.py` is dead once `parquet-export` is
-verified in prod.
+Run by `systemd/omicidx-downstream.timer` as
+`python -m omicidx.prefect.flows.main run`. One unit for the whole chain
+rather than five: the stages are strictly sequential and each one's input is
+the previous one's output, so five units would only buy `After=` ordering we
+already get for free — while adding four more things that can be half-enabled.
+
+Recovery after a mid-chain failure is per stage, not per chain:
+`omicidx-prefect run transform`, `... run postgres`, and so on. Every stage is
+idempotent, so re-running from an earlier stage is also safe, just slower.
+
+Raw extraction is NOT here. Each domain is its own scheduled EL process on its
+own timer (#149) — `omicidx-{sra,pubmed,biosample,ebi-biosample}-extract` — so
+this chain loads whatever raw those timers have already landed on R2. GEO alone
+has no timer yet (#154/#174); until it does, GEO raw goes stale unless someone
+runs `omicidx-prefect run geo` by hand.
 """
 
-from omicidx.prefect.flows.ducklake_load import ducklake_load_flow
-from omicidx.prefect.flows.geo import geo_rna_seq_counts_flow
-from omicidx.prefect.flows.parquet_export import parquet_export_flow
-from omicidx.prefect.flows.postgres import postgres_load_flow
-from omicidx.prefect.flows.publish_bundle import publish_bundle_flow
-from omicidx.prefect.flows.transform import transform_flow
+import logging
 
-from prefect import flow
+import click
+from omicidx.prefect.flows.ducklake_load import ducklake_load
+from omicidx.prefect.flows.geo import fetch_rna_seq_counts
+from omicidx.prefect.flows.parquet_export import parquet_export
+from omicidx.prefect.flows.postgres import postgres_load
+from omicidx.prefect.flows.publish_bundle import publish_bundle
+from omicidx.prefect.flows.transform import transform
+
+log = logging.getLogger(__name__)
 
 
-@flow(name="raw-extract")
-def raw_extract_flow(force: bool = False) -> None:
-    """Run the raw extractors that have not yet moved to their own timer.
+def daily_pipeline() -> None:
+    """Load the lake from raw, transform, export, serve, publish.
 
-    Hollowing out on purpose (#149): each domain migrated to a standalone
-    scheduled EL process is removed here in the same change that adds its
-    timer, or it would extract twice — once on its timer, once inside
-    `daily-pipeline`. When the last one goes, `daily-pipeline` is nothing but
-    the downstream chain, which is what #158 replaces.
+    ``parquet_export`` returns the publish date it stamped v{date}/ with, and
+    ``publish_bundle`` is pinned to that same date, so the frozen bundle (file
+    catalog + omicidx.duckdb + views.sql + manifest) references the Parquet just
+    written rather than whatever "today" is by the time it runs.
     """
-    # ponytail: biosample/bioproject-extract are deliberately absent. They are
-    # one standalone EL process (#155) on `systemd/omicidx-biosample-extract.timer`;
-    # ad-hoc runs are `python -m omicidx.prefect.flows.biosample run` or
-    # `omicidx-prefect run biosample` / `run bioproject`.
-    # ponytail: sra-extract is deliberately absent. It is the pilot standalone
-    # EL process (#153) and now runs on its own systemd timer
-    # (`systemd/omicidx-sra-extract.timer`); ad-hoc runs are
-    # `python -m omicidx.prefect.flows.sra run` or `omicidx-prefect run sra`.
-    # ponytail: geo-extract is deliberately absent. It now runs on its own
-    # systemd timer (`systemd/omicidx-geo-extract.timer`, #154) — stacked
-    # concurrent runs of it were what held this pipeline in `Running` from
-    # 2026-08-08. Ad-hoc runs are `python -m omicidx.prefect.flows.geo run`
-    # or `omicidx-prefect run geo`. `geo_rna_seq_counts_flow` below is a
-    # separate, non-partitioned refresh and is not part of that migration.
-    # ponytail: ebi-biosample-extract is deliberately absent. It now runs on its
-    # own systemd timer (`systemd/omicidx-ebi-biosample-extract.timer`, daily
-    # 02:00 UTC); ad-hoc runs are
-    # `python -m omicidx.prefect.flows.ebi_biosample run` or
-    # `omicidx-prefect run ebi-biosample`. With it goes the last *extract*:
-    # `geo_rna_seq_counts_flow` below is a derived flow, not an extract, so
-    # where it belongs is #158's call, not this ticket's.
-    geo_rna_seq_counts_flow()
-    # ponytail: pubmed-extract is deliberately absent. It now runs on its own
-    # systemd timer (`systemd/omicidx-pubmed-extract.timer`, hourly, the cadence
-    # its retired `pubmed-extract` deployment had); ad-hoc runs are
-    # `python -m omicidx.prefect.flows.pubmed run` or `omicidx-prefect run pubmed`.
+    # ponytail: the one non-extract that has to lead. `fetch_rna_seq_counts` is
+    # a ~1min eutils call whose output `geo_rnaseq_counts_to_ducklake` reads
+    # during the load below, so it belongs to this chain, not to a timer of its
+    # own. It rode inside `raw_extract_flow` only because that flow ran first.
+    fetch_rna_seq_counts()
+    ducklake_load()
+    transform()
+    date = parquet_export()
+    postgres_load()
+    publish_bundle(date=date)
 
 
-@flow(name="daily-pipeline", timeout_seconds=36000)
-def daily_pipeline_flow(force: bool = False) -> None:
-    """Daily pipeline: extract → ducklake-load → transform → parquet-export → postgres → publish.
+@click.group()
+def cli() -> None:
+    """Downstream pipeline (`python -m omicidx.prefect.flows.main run`)."""
 
-    ``parquet-export`` returns the publish date it stamped v{date}/ with;
-    ``publish-bundle`` is pinned to that same date so the frozen bundle
-    (file catalog + omicidx.duckdb + views.sql + manifest) references the
-    Parquet just written. ``publish-bundle`` builds omicidx.duckdb itself
-    (Stage B2: duckdb-build output redirected into the bundle), so the old
-    standalone ``omicidx-duckdb-build`` no longer runs inside the pipeline.
 
-    ``timeout_seconds=36000`` (10h): historical successful runs take
-    6.3-7h; a stall (e.g. a network call that hangs instead of erroring)
-    should fail loudly well before the 12h "stuck run" automation's
-    backstop, not sit blue in the UI indefinitely.
-    """
-    raw_extract_flow(force=force)
-    ducklake_load_flow()
-    transform_flow()
-    date = parquet_export_flow()
-    postgres_load_flow()
-    publish_bundle_flow(date=date)
+@cli.command("run")
+def run_command() -> None:
+    """Run the whole downstream chain, in order, failing loudly."""
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
+    )
+    daily_pipeline()
+    click.echo("downstream: load → transform → export → postgres → publish complete")
 
 
 if __name__ == "__main__":
-    daily_pipeline_flow()
+    cli()

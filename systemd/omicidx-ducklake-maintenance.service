@@ -1,0 +1,23 @@
+# Weekly DuckLake catalog maintenance. Replaces the Prefect
+# `ducklake-maintenance` deployment (cron `0 4 * * 0`) retired with the worker.
+[Unit]
+Description=Reclaim space in the omicidx DuckLake catalog (cleanup + compaction)
+Documentation=https://github.com/seandavi/omicidx/issues/158
+After=network-online.target
+Wants=network-online.target
+OnFailure=ntfy-notify@%N.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/davsean/Documents/git/omicidx
+EnvironmentFile=/home/davsean/Documents/git/omicidx/.env
+# No arguments, on purpose: bare `ducklake-maintenance` runs cleanup +
+# compaction with retention UNBOUNDED, so the scheduled path can only ever
+# extend history. Expiring snapshots requires an operator passing
+# `--retention-days` by hand — never a timer. See DUCKLAKE.md.
+ExecStart=%h/.local/bin/uv run omicidx-prefect run ducklake-maintenance
+TimeoutStartSec=14400
+Nice=15
+
+[Install]
+WantedBy=default.target

@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """Dev-schema validation for the cdsci-lake write-path migration (PR #118).
 
-READ-ONLY. After you have run ``ducklake_load_flow(lake_schema="<schema>")``
+READ-ONLY. After you have run ``ducklake_load(lake_schema="<schema>")``
 against a dev schema, this asserts the migration's invariants against the lake
 ledger + catalog and prints PASS/FAIL. It never writes to the catalog.
 

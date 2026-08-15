@@ -24,13 +24,15 @@ block, attributed via ``r.attribute("deletes")``, to purge any previously
 loaded PMIDs that subsequently appeared as deletions.
 """
 
+import logging
+
 from cdsci.lake import ops
 from cdsci.lake.connect import upsert
 from omicidx.prefect.config import get_duckdb_path, get_lake_connection
 from omicidx.prefect.flows.ducklake import LAKE_SCHEMA
+from omicidx.prefect.run import retry, run_id
 
-from prefect import get_run_logger, task
-from prefect.runtime import flow_run
+log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Source projection
@@ -86,7 +88,7 @@ SELECT * EXCLUDE (rn) FROM (
 # ---------------------------------------------------------------------------
 
 
-@task(retries=1, retry_delay_seconds=60)
+@retry
 def pubmed_to_ducklake(lake_schema: str = LAKE_SCHEMA) -> dict:
     """Upsert raw pubmed → lake.<lake_schema>.pubmed_article; DELETE retracted PMIDs.
 
@@ -99,7 +101,6 @@ def pubmed_to_ducklake(lake_schema: str = LAKE_SCHEMA) -> dict:
     Returns the ``ops.run`` summary plus ``deleted_count`` (PMIDs removed by
     the delete pass).
     """
-    log = get_run_logger()
     raw = get_duckdb_path("pubmed", "raw", "*.parquet")
     source_sql = _PUBMED_SOURCE.format(path=raw)
     target = f"lake.{lake_schema}.pubmed_article"
@@ -117,7 +118,7 @@ def pubmed_to_ducklake(lake_schema: str = LAKE_SCHEMA) -> dict:
             con,
             source="pubmed",
             target=target,
-            extra={"prefect_run_id": flow_run.get_id()},
+            extra={"run_id": run_id()},
         ) as r:
             r.rows = upsert(con, target, source_sql, key="pmid")
             log.info(f"{target} holds {r.rows:,} rows after merge")

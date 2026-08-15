@@ -19,14 +19,16 @@ raw. `cdsci-lake` (the catalog bucket) is ducklake-controlled exclusively;
 raw is read from PUBLISH_ROOT via `get_duckdb_path`.
 """
 
+import logging
+
 import duckdb
 from cdsci.lake import ops
 from cdsci.lake.connect import upsert
 from omicidx.prefect.config import get_duckdb_path, get_lake_connection
 from omicidx.prefect.flows.ducklake import LAKE_SCHEMA
+from omicidx.prefect.run import retry, run_id
 
-from prefect import flow, get_run_logger, task
-from prefect.runtime import flow_run
+log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Per-entity source projections.
@@ -146,7 +148,6 @@ def _merge_sra(
     (unless first run or force), upsert, then advance it to the max raw
     `date` actually present — all inside one `ops.run` block.
     """
-    log = get_run_logger()
     raw = get_duckdb_path("sra", "raw", raw_subdir, "**", "*parquet")
     target = f"lake.{lake_schema}.{table}"
     wm_name = f"{lake_schema}:{entity}"
@@ -170,7 +171,7 @@ def _merge_sra(
             source="sra",
             target=target,
             version=str(new_max) if new_max is not None else None,
-            extra={"prefect_run_id": flow_run.get_id()},
+            extra={"run_id": run_id()},
         ) as r:
             r.rows = upsert(con, target, source_sql, key="accession")
             if new_max is not None:
@@ -188,7 +189,7 @@ def _merge_sra(
         }
 
 
-@task(retries=1, retry_delay_seconds=60)
+@retry
 def sra_study_to_ducklake(lake_schema: str = LAKE_SCHEMA, force: bool = False) -> dict:
     """Upsert raw SRA study partitions → lake.<lake_schema>.sra_study."""
     return _merge_sra(
@@ -201,7 +202,7 @@ def sra_study_to_ducklake(lake_schema: str = LAKE_SCHEMA, force: bool = False) -
     )
 
 
-@task(retries=1, retry_delay_seconds=60)
+@retry
 def sra_sample_to_ducklake(lake_schema: str = LAKE_SCHEMA, force: bool = False) -> dict:
     """Upsert raw SRA sample partitions → lake.<lake_schema>.sra_sample."""
     return _merge_sra(
@@ -214,7 +215,7 @@ def sra_sample_to_ducklake(lake_schema: str = LAKE_SCHEMA, force: bool = False) 
     )
 
 
-@task(retries=1, retry_delay_seconds=60)
+@retry
 def sra_experiment_to_ducklake(
     lake_schema: str = LAKE_SCHEMA, force: bool = False
 ) -> dict:
@@ -229,7 +230,7 @@ def sra_experiment_to_ducklake(
     )
 
 
-@task(retries=1, retry_delay_seconds=60)
+@retry
 def sra_run_to_ducklake(lake_schema: str = LAKE_SCHEMA, force: bool = False) -> dict:
     """Upsert raw SRA run partitions → lake.<lake_schema>.sra_run."""
     return _merge_sra(
@@ -242,8 +243,7 @@ def sra_run_to_ducklake(lake_schema: str = LAKE_SCHEMA, force: bool = False) -> 
     )
 
 
-@flow(name="ducklake-load-sra")
-def ducklake_load_sra_flow(lake_schema: str = LAKE_SCHEMA, force: bool = False) -> None:
+def ducklake_load_sra(lake_schema: str = LAKE_SCHEMA, force: bool = False) -> None:
     """Merge all four SRA entities into the lake (order unconstrained)."""
     sra_study_to_ducklake(lake_schema=lake_schema, force=force)
     sra_sample_to_ducklake(lake_schema=lake_schema, force=force)
@@ -252,4 +252,4 @@ def ducklake_load_sra_flow(lake_schema: str = LAKE_SCHEMA, force: bool = False) 
 
 
 if __name__ == "__main__":
-    ducklake_load_sra_flow()
+    ducklake_load_sra()

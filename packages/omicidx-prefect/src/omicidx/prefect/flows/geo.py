@@ -11,9 +11,11 @@ journald, failures trip `OnFailure=ntfy-notify@%N.service`, and the semaphores
 are the per-partition ledger. The module path still says `prefect` only
 because the rename is #160.
 
-`geo_rna_seq_counts_flow` is a separate, non-partitioned refresh of the
-GSEs-with-RNA-seq-counts file. It is NOT part of the extract and still runs
-inside `raw_extract_flow`, so it keeps its Prefect decorators for now.
+`fetch_rna_seq_counts` is a separate, non-partitioned refresh of the
+GSEs-with-RNA-seq-counts file. It is NOT part of the extract and is not on this
+timer: `ducklake_load` reads its output, so it now leads the downstream chain
+(`flows/main.py`). It was the last thing in this module holding a Prefect
+import, which #158 removed.
 
 ## Why 2020-07 "hung" (#154)
 
@@ -52,11 +54,10 @@ import tenacity
 from dateutil.relativedelta import relativedelta
 from omicidx.parsers.geo import parser as gp
 from omicidx.prefect.config import get_upath
+from omicidx.prefect.run import retry
 from omicidx.prefect.semaphore import SemaphoreStore
 from omicidx.prefect.source import run_extraction
 from upath import UPath
-
-from prefect import flow, get_run_logger, task
 
 log = logging.getLogger(__name__)
 
@@ -319,9 +320,8 @@ def extract_month(key: str, force: bool = False) -> dict:
 # ---------------------------------------------------------------------------
 
 
-@task(retries=2, retry_delay_seconds=30)
+@retry
 def fetch_rna_seq_counts() -> dict:
-    log = get_run_logger()
     offset = 0
     retmax = 5000
     accessions: list[dict] = []
@@ -418,6 +418,12 @@ def geo_extract(
     any month whose semaphore exists. Set ``force=True`` to re-extract
     everything in the range. Set ``rerun_current_month=False`` to also
     skip the current month if its semaphore exists.
+
+    ponytail: `systemd/omicidx-geo-extract.timer` exists but is deliberately not
+    installed yet (#174). 2020-07 onward — 74 months — has never been extracted,
+    and that backlog is ~27h of work: on a timer it would hit `TimeoutStartSec`
+    and page for five consecutive nights while making partial progress. Burn it
+    down in the foreground once, then enable the timer.
     """
     return run_extraction(
         GeoSource(
@@ -428,16 +434,6 @@ def geo_extract(
         force=force,
         max_workers=max_workers,
     )
-
-
-@flow(name="geo-rna-seq-counts")
-def geo_rna_seq_counts_flow() -> None:
-    """Refresh the (small) GSE-with-RNA-seq-counts file. Not partitioned.
-
-    Still a Prefect flow: it is not part of the extract and stays in
-    `raw_extract_flow` until the downstream unit (#158) replaces it.
-    """
-    fetch_rna_seq_counts()
 
 
 @click.group()
@@ -454,13 +450,11 @@ def run_command(
     start_month: str, end_month: str | None, force: bool, max_workers: int
 ) -> None:
     """Extract every pending GEO monthly partition."""
-    # force=True is load-bearing, not cargo cult. This module still imports
-    # `prefect` for `geo_rna_seq_counts_flow`, and that import installs a
-    # PrefectConsoleHandler on the *root* logger at level WARNING -- which makes
-    # a plain `basicConfig()` a silent no-op and drops every INFO line this
-    # process emits. Caught only by running the entry point: a month extracted
-    # correctly and logged absolutely nothing to journald. Drop the `force` when
-    # geo_rna_seq_counts_flow leaves (#158) and the prefect import goes.
+    # force=True stays even though the prefect import that made it necessary is
+    # gone (#158). It was not cargo cult: `PrefectConsoleHandler` on the root
+    # logger turned `basicConfig()` into a silent no-op, and a month extracted
+    # perfectly while logging nothing to journald. Any third-party import can
+    # do that again, and the failure is invisible until you need the logs.
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
