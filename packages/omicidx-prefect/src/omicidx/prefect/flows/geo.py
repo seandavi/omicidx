@@ -98,6 +98,7 @@ def month_deadline(n_accessions: int) -> float:
     """Wall-clock ceiling for fetching `n_accessions`, expressed as a rate floor."""
     return max(MONTH_TIMEOUT_FLOOR_SECONDS, n_accessions / MIN_FETCH_RATE)
 
+
 #: Fraction of a month's accessions that may fail to fetch before the month is
 #: not "done". Individual accessions do get withdrawn from GEO, so this is not
 #: zero; but 2020-06 was marked done having written 68,296 of 73,548 GSMs (7%
