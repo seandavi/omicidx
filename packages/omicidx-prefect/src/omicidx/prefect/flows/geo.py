@@ -73,11 +73,30 @@ MAX_WORKERS = 1
 #: the regime that produced the wedge -- it is the one knob that matters.
 MONTH_FETCH_CONCURRENCY = 30
 
-#: Wall-clock ceiling for one month's fetch. A full month measured 22 min, so
-#: this is ~5x headroom: a month that blows through it is pathological and
-#: should fail the process (and trip `OnFailure=`) rather than grind silently,
-#: which is exactly what nobody noticed for six years' worth of months.
-MONTH_TIMEOUT_SECONDS = 7200
+#: Floor for one month's fetch deadline. A month that blows through its deadline
+#: is pathological and should fail the process (and trip `OnFailure=`) rather
+#: than grind silently, which is exactly what nobody noticed for six years'
+#: worth of months. Small months finish in minutes, so the floor keeps the guard
+#: meaningful for them without tripping on ordinary variance.
+MONTH_TIMEOUT_FLOOR_SECONDS = 7200
+
+#: ...but the deadline is really a **rate** floor. A month's work is proportional
+#: to its accession count, so a fixed wall clock is only ever correct for one
+#: month size. Measured healthy throughput is ~44-47 req/s single-process, so
+#: 10 req/s preserves the ~5x headroom the original fixed 2h was chosen for, at
+#: any size.
+#:
+#: This is not hypothetical: **2019-05 holds 732,475 accessions** -- 16x its
+#: neighbours (2019-04: 46,106, 2019-06: 44,880), a GEO-wide bulk update -- and
+#: needs ~4.6h at measured rate. The fixed 2h killed it three times in a row,
+#: and being first in the pending list it blocked the entire 75-month backfill
+#: while extracting nothing (#174).
+MIN_FETCH_RATE = 10.0
+
+
+def month_deadline(n_accessions: int) -> float:
+    """Wall-clock ceiling for fetching `n_accessions`, expressed as a rate floor."""
+    return max(MONTH_TIMEOUT_FLOOR_SECONDS, n_accessions / MIN_FETCH_RATE)
 
 #: Fraction of a month's accessions that may fail to fetch before the month is
 #: not "done". Individual accessions do get withdrawn from GEO, so this is not
@@ -182,7 +201,7 @@ async def _fetch_soft(accession: str, client: httpx.AsyncClient) -> str:
 async def _fetch_and_parse(
     accessions: list[str],
     concurrency: int = MONTH_FETCH_CONCURRENCY,
-    timeout_seconds: int = MONTH_TIMEOUT_SECONDS,
+    timeout_seconds: float | None = None,
 ) -> tuple[dict[str, list[dict]], int]:
     """Fetch + parse every accession's SOFT record. Returns (records, n_failed).
 
@@ -193,6 +212,8 @@ async def _fetch_and_parse(
     results: dict[str, list[dict]] = {"GSE": [], "GSM": [], "GPL": []}
     semaphore = asyncio.Semaphore(concurrency)
     failed = 0
+    if timeout_seconds is None:
+        timeout_seconds = month_deadline(len(accessions))
 
     async def _one(acc: str, client: httpx.AsyncClient) -> None:
         nonlocal failed
@@ -214,6 +235,13 @@ async def _fetch_and_parse(
         # The deadline is the loud guard: every socket here already has a
         # timeout, so nothing blocks forever, but "62k requests at 1.2/s"
         # looks exactly like a hang from outside. This turns it into a crash.
+        log.info(
+            "geo: %d accessions, deadline %.1fh (floor %.1fh, min %.0f req/s)",
+            len(accessions),
+            timeout_seconds / 3600,
+            MONTH_TIMEOUT_FLOOR_SECONDS / 3600,
+            MIN_FETCH_RATE,
+        )
         async with asyncio.timeout(timeout_seconds):
             await asyncio.gather(
                 *(_one(acc, client) for acc in accessions), return_exceptions=True

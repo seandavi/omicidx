@@ -66,3 +66,25 @@ def test_extract_month_refuses_to_mark_a_holed_month_done(monkeypatch, tmp_path)
 async def _completed(value):
     """`extract_month` calls these under `asyncio.run`, so stubs stay awaitable."""
     return value
+
+
+def test_month_deadline_scales_with_accession_count():
+    """A fixed wall clock is only correct for one month size (#174)."""
+    from omicidx.prefect.flows.geo import (
+        MIN_FETCH_RATE,
+        MONTH_TIMEOUT_FLOOR_SECONDS,
+        month_deadline,
+    )
+
+    # Ordinary months stay on the floor — the guard is unchanged for them.
+    assert month_deadline(46_106) == MONTH_TIMEOUT_FLOOR_SECONDS
+    assert month_deadline(62_419) == MONTH_TIMEOUT_FLOOR_SECONDS
+
+    # 2019-05 is real: 732,475 accessions, 16x its neighbours. At the old fixed
+    # 2h it could not finish, and being first in the pending list it blocked the
+    # whole backfill.
+    monster = month_deadline(732_475)
+    assert monster > MONTH_TIMEOUT_FLOOR_SECONDS
+    assert monster == 732_475 / MIN_FETCH_RATE
+    # Comfortably past the ~4.6h the month needs at measured throughput.
+    assert monster > 4.6 * 3600
