@@ -113,11 +113,20 @@ MAX_FETCH_FAILURE_RATE = 0.02
 
 
 def _is_retryable(e: BaseException) -> bool:
-    """Transport hiccups and NCBI backpressure -- not 4xx, which never heals."""
+    """Transport hiccups and NCBI backpressure -- not 4xx, which never heals.
+
+    `httpx.NetworkError`, not `httpx.ConnectError`. They are siblings, and
+    naming only the connect case silently excluded `ReadError` -- the socket
+    dying mid-response, which is precisely how NCBI drops a request under load.
+    Measured over the 6,067,977-record backfill: **530 of 534 failures were
+    ReadError**, none of them retried even once, each one landing straight in
+    the failure counter. That is the entire ~0.0-0.1% deficit the completeness
+    audit reports on nearly every month.
+    """
     if isinstance(e, httpx.HTTPStatusError):
         return e.response.status_code == 429 or 500 <= e.response.status_code < 600
     return isinstance(
-        e, httpx.RemoteProtocolError | httpx.ConnectError | httpx.TimeoutException
+        e, httpx.NetworkError | httpx.RemoteProtocolError | httpx.TimeoutException
     )
 
 
