@@ -88,3 +88,29 @@ def test_month_deadline_scales_with_accession_count():
     assert monster == 732_475 / MIN_FETCH_RATE
     # Comfortably past the ~4.6h the month needs at measured throughput.
     assert monster > 4.6 * 3600
+
+
+def test_readerror_is_retryable():
+    """ReadError is a NetworkError sibling of ConnectError, not a timeout (#174).
+
+    Naming only ConnectError excluded it, and it is how NCBI drops a request
+    under load: 530 of 534 failures across a 6M-record backfill were ReadError,
+    none retried.
+    """
+    import httpx
+    from omicidx.prefect.flows.geo import _is_retryable
+
+    req = httpx.Request("GET", "https://example.org")
+    assert _is_retryable(httpx.ReadError("socket died", request=req))
+    assert _is_retryable(httpx.ConnectError("refused", request=req))
+    assert _is_retryable(httpx.ReadTimeout("slow", request=req))
+    assert _is_retryable(httpx.RemoteProtocolError("bad frame", request=req))
+
+    # 4xx never heals, so it must still not be retried.
+    resp = httpx.Response(404, request=req)
+    assert not _is_retryable(httpx.HTTPStatusError("nf", request=req, response=resp))
+    assert _is_retryable(
+        httpx.HTTPStatusError(
+            "rate", request=req, response=httpx.Response(429, request=req)
+        )
+    )
