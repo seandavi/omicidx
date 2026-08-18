@@ -27,10 +27,12 @@ EnvironmentFile=/home/davsean/Documents/git/omicidx/.env
 ExecStart=%h/.local/bin/uv run python -m omicidx.prefect.flows.ebi_biosample run
 # RuntimeMaxSec= silently has no effect on Type=oneshot — use TimeoutStartSec=.
 # An incremental night is one day partition (seconds) plus the DuckDB rollup over
-# ~2,000 NDJSON files (minutes). 6h is sized for a backfill night, where every
+# ~2,000 NDJSON files (minutes). 12h is sized for a backfill night, where every
 # missing day since 2021-01-01 is crawled 4-wide; per-day semaphores make a
-# timeout resumable rather than wasted.
-TimeoutStartSec=21600
+# timeout resumable rather than wasted. 6h was tripping every night mid-2024
+# (#173) — a resumable kill, but it was pacing the drain at 6h/day. Ceiling is
+# the ~24h until the next fire; 12h leaves room and still ends before noon.
+TimeoutStartSec=43200
 Nice=10
 
 [Install]
