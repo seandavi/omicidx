@@ -278,14 +278,14 @@ def _lake_settings() -> LakeSettings:
     )
 
 
-def get_lake_connection() -> duckdb.DuckDBPyConnection:
-    """Write-mode connection to the shared lake via cdsci-lake.
+def get_lake_connection(read_only: bool = False) -> duckdb.DuckDBPyConnection:
+    """Connection to the shared lake via cdsci-lake (write-mode unless read_only).
 
     Replaces `get_ducklake_connection` for converted loaders. Attaches the
     lake as `lake` and the operational ledger as `ops` (run history +
     watermarks).
     """
-    return lake_connect(_lake_settings())
+    return lake_connect(_lake_settings(), read_only=read_only)
 
 
 # ---------------------------------------------------------------------------
