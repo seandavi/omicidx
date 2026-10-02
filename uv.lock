@@ -510,8 +510,8 @@ wheels = [
 
 [[package]]
 name = "cdsci-lake"
-version = "0.3.0"
-source = { git = "https://github.com/seandavi/cdsci-lake?rev=v0.3.0#f7b8accd362791dbde725547539a91094a24121c" }
+version = "0.3.1"
+source = { git = "https://github.com/seandavi/cdsci-lake?rev=v0.3.1#bfadae4f486abb773a0609cada7bd254fec61b82" }
 dependencies = [
     { name = "duckdb" },
     { name = "httpx" },
@@ -2570,7 +2570,7 @@ dependencies = [
 requires-dist = [
     { name = "anyio", extras = ["trio"], specifier = ">=4.0" },
     { name = "asyncpg", specifier = ">=0.30" },
-    { name = "cdsci-lake", git = "https://github.com/seandavi/cdsci-lake?rev=v0.3.0" },
+    { name = "cdsci-lake", git = "https://github.com/seandavi/cdsci-lake?rev=v0.3.1" },
     { name = "click", specifier = ">=8.0" },
     { name = "duckdb", specifier = ">=1.5.3" },
     { name = "httpx", specifier = ">=0.28" },
