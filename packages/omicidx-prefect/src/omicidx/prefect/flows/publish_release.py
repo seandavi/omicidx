@@ -218,9 +218,11 @@ PUBMED = DatasetContract(
 )
 
 
-def _select_sql() -> str:
+def _select_sql(snapshot_id: int) -> str:
     cols = ", ".join(f'"{name}"' for name, *_ in _COLUMNS)
-    return f"SELECT {cols} FROM lake.omicidx.pubmed_article"
+    return (
+        f"SELECT {cols} FROM lake.omicidx.pubmed_article AT (VERSION => {snapshot_id})"
+    )
 
 
 def publish_pubmed_release(
@@ -236,7 +238,7 @@ def publish_pubmed_release(
             ref="lake.omicidx.pubmed_article", version=f"snapshot:{snapshot_id}"
         ),
     )
-    tables = {"pubmed_article": con.sql(_select_sql())}
+    tables = {"pubmed_article": con.sql(_select_sql(snapshot_id))}
 
     def _publish(root: Path) -> ReleaseManifest:
         return publish_release(
