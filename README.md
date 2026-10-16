@@ -15,9 +15,9 @@ con = duckdb.connect()
 con.execute("INSTALL httpfs; LOAD httpfs;")
 
 df = con.sql("""
-    SELECT accession, title, total_spots, total_bases
-    FROM read_parquet('https://data.omicidx.cancerdatasci.org/latest/sra_runs.parquet')
-    WHERE total_bases > 1e10
+    SELECT accession, study, spots, bases
+    FROM read_parquet('https://data.omicidx.cancerdatasci.org/latest/sra_accessions.parquet')
+    WHERE type = 'RUN' AND bases > 1e10
     LIMIT 10
 """).df()
 ```
