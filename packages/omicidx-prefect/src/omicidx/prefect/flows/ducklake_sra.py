@@ -21,21 +21,21 @@ raw is read from PUBLISH_ROOT via `get_duckdb_path`.
 
 import logging
 
-import duckdb
 from cdsci.lake import ops
 from cdsci.lake.connect import upsert
 from omicidx.prefect.config import get_duckdb_path, get_lake_connection
 from omicidx.prefect.flows.ducklake import LAKE_SCHEMA
 from omicidx.prefect.run import retry, run_id
+from omicidx.prefect.semaphore import SemaphoreStore
 
 log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Per-entity source projections.
 #
-# Each is a python str.format(path=..., filt=...) template:
-#   {path} — the r2:// glob for the entity's raw partitions
-#   {filt} — "" or "date >= '<high_water>'" (the incremental scope)
+# Each is a python str.format(paths=...) template:
+#   {paths} — SQL list of r2:// globs, one per *completed* raw partition in
+#             scope (see `_done_partitions`)
 # The column lists mirror consolidate.py's sra_*_parquet projections exactly
 # (those are authoritative); we add the standard date/stage dedup QUALIFY.
 # `upsert` gates UPDATEs on IS DISTINCT FROM, so no `_row_hash` column.
@@ -54,8 +54,7 @@ SELECT
     trim("BioProject") AS bioproject,
     trim("GEO") AS geo,
     identifiers, attributes, xrefs, pubmed_ids
-FROM read_parquet('{path}', hive_partitioning=true)
-{filt}
+FROM read_parquet({paths}, hive_partitioning=true)
 QUALIFY row_number() OVER (
     PARTITION BY accession ORDER BY date DESC, stage DESC
 ) = 1
@@ -70,8 +69,7 @@ SELECT
     taxon_id,
     trim("BioSample") AS biosample,
     identifiers, attributes, xrefs
-FROM read_parquet('{path}', hive_partitioning=true)
-{filt}
+FROM read_parquet({paths}, hive_partitioning=true)
 QUALIFY row_number() OVER (
     PARTITION BY accession ORDER BY date DESC, stage DESC
 ) = 1
@@ -98,8 +96,7 @@ SELECT
     trim(library_selection) AS library_selection,
     spot_length, nreads,
     identifiers, attributes, xrefs, reads
-FROM read_parquet('{path}', hive_partitioning=true)
-{filt}
+FROM read_parquet({paths}, hive_partitioning=true)
 QUALIFY row_number() OVER (
     PARTITION BY accession ORDER BY date DESC, stage DESC
 ) = 1
@@ -112,24 +109,42 @@ SELECT
     trim(experiment_accession) AS experiment_accession,
     trim(title) AS title,
     identifiers, attributes, qualities
-FROM read_parquet('{path}', hive_partitioning=true)
-{filt}
+FROM read_parquet({paths}, hive_partitioning=true)
 QUALIFY row_number() OVER (
     PARTITION BY accession ORDER BY date DESC, stage DESC
 ) = 1
 """
 
 
-def _max_raw_date(con: duckdb.DuckDBPyConnection, raw: str) -> object | None:
-    """Max `date` hive partition present in raw (the new watermark).
+def _done_partitions(
+    raw_subdir: str, since: str | None
+) -> tuple[list[str], str | None]:
+    """Globs for the raw partitions the extractor marked done, and their max date.
 
-    Reads partition metadata only — cheap relative to the merge scan.
-    Returns None when no partitions exist so the watermark is left as-is.
+    Raw parquet chunks land while the mirror file is parsed and the semaphore is
+    written only at the end, so globbing the raw tree would MERGE a partial
+    partition from an in-flight or killed extract (#189). Only keys with a
+    semaphore under ``sra/<raw_subdir>`` (``{date}_{stage}``) and ``date >=
+    since`` are in scope. A partition that parsed to zero rows wrote no files,
+    so it is skipped rather than handed to ``read_parquet`` as an empty glob.
     """
-    row = con.execute(
-        f"SELECT max(date) FROM read_parquet('{raw}', hive_partitioning=true)"
-    ).fetchone()
-    return row[0] if row else None
+    sem = SemaphoreStore(f"sra/{raw_subdir}")
+    picked = []
+    for key in sorted(sem.list_keys()):
+        date, stage = key.split("_", 1)
+        if since is not None and date < since:
+            continue
+        doc = sem.read(key) or {}
+        if doc.get("metadata", {}).get("parquet_parts", 1) == 0:
+            continue
+        picked.append((date, stage))
+    globs = [
+        get_duckdb_path(
+            "sra", "raw", raw_subdir, f"date={d}", f"stage={st}", "*parquet"
+        )
+        for d, st in picked
+    ]
+    return globs, max((d for d, _ in picked), default=None)
 
 
 def _merge_sra(
@@ -145,46 +160,45 @@ def _merge_sra(
     Shared body for the four public tasks. The watermark lives in the lake
     ledger keyed per-entity, per-schema (source `sra`, name
     `<lake_schema>:<entity>`): read it, scope the source to `date >= <wm>`
-    (unless first run or force), upsert, then advance it to the max raw
-    `date` actually present — all inside one `ops.run` block.
+    (unless first run or force), upsert, then advance it to the max `date`
+    merged — all inside one `ops.run` block. Only semaphore-marked partitions
+    are read (`_done_partitions`).
     """
-    raw = get_duckdb_path("sra", "raw", raw_subdir, "**", "*parquet")
     target = f"lake.{lake_schema}.{table}"
     wm_name = f"{lake_schema}:{entity}"
 
     with get_lake_connection() as con:
         last = None if force else ops.get_watermark(con, "sra", wm_name)
         if last is not None:
-            filt = f"WHERE date >= '{last}'"
             log.info(f"{entity}: incremental scope date >= {last}")
         else:
-            filt = ""
             reason = "force=True" if force else "no prior watermark"
             log.info(f"{entity}: full scan ({reason})")
 
-        source_sql = source_template.format(path=raw, filt=filt)
-        new_max = _max_raw_date(con, raw)  # partition metadata only; cheap
+        globs, new_max = _done_partitions(raw_subdir, last)
+        if not globs:
+            log.warning(f"{entity}: no completed raw partitions in scope; skipping")
+            return {"high_water_from": last, "high_water_to": last, "forced": force}
+        source_sql = source_template.format(
+            paths="[" + ", ".join(f"'{g}'" for g in globs) + "]"
+        )
 
-        log.info(f"Merging {raw} → {target}")
+        log.info(f"Merging {len(globs)} completed partitions → {target}")
         with ops.run(
             con,
             source="sra",
             target=target,
-            version=str(new_max) if new_max is not None else None,
+            version=new_max,
             extra={"run_id": run_id()},
         ) as r:
             r.rows = upsert(con, target, source_sql, key="accession")
-            if new_max is not None:
-                ops.set_watermark(con, "sra", wm_name, str(new_max), run_id=r.run_id)
+            ops.set_watermark(con, "sra", wm_name, new_max, run_id=r.run_id)
 
-        if new_max is not None:
-            log.info(f"{entity}: watermark advanced to {new_max}")
-        else:
-            log.warning(f"{entity}: no raw partitions found; watermark unchanged")
+        log.info(f"{entity}: watermark advanced to {new_max}")
         log.info(f"{target} now holds {r.rows:,} rows")
         return r.summary() | {
             "high_water_from": last,
-            "high_water_to": str(new_max) if new_max is not None else None,
+            "high_water_to": new_max,
             "forced": force,
         }
 
