@@ -25,7 +25,7 @@ import click
 import httpx
 import orjson
 import tenacity
-from omicidx.prefect.config import get_duckdb_connection, get_duckdb_path, get_upath
+from omicidx.prefect.config import get_upath
 from omicidx.prefect.semaphore import SemaphoreStore
 from omicidx.prefect.source import run_extraction
 
@@ -183,40 +183,6 @@ def _enumerate_days(start: str = "2021-01-01", end: str | None = None) -> list[s
     return keys
 
 
-def consolidate_ebi_biosample_parquet() -> dict:
-    """Consolidate per-day NDJSON into a single parquet via DuckDB.
-
-    ponytail: kept because removing it would change behaviour, not because
-    anything reads it — `ducklake_ebi_biosample.py` MERGEs from the raw NDJSON
-    glob, and the public `ebi_biosample.parquet` comes out of `parquet_export`
-    from the lake. Nothing in this repo consumes
-    `ebi_biosample/parquet/ebi_biosamples.parquet`. If that holds after #158
-    audits the downstream unit, delete this and pass `--no-consolidate` becomes
-    moot.
-    """
-    input_glob = get_duckdb_path("ebi_biosample", "raw", "biosamples-*.ndjson.gz")
-    output_path = get_duckdb_path("ebi_biosample", "parquet", "ebi_biosamples.parquet")
-    sql = f"""
-        COPY (
-            SELECT *
-            FROM read_ndjson_auto(
-                '{input_glob}',
-                maximum_object_size = 1000000000,
-                union_by_name = true,
-                ignore_errors = false
-            )
-        ) TO '{output_path}' (FORMAT PARQUET, COMPRESSION ZSTD)
-    """
-    with get_duckdb_connection() as con:
-        log.info(f"Consolidating {input_glob} → {output_path}")
-        con.execute(sql)
-        row_count = con.execute(
-            f"SELECT count(*) FROM read_parquet('{output_path}')"
-        ).fetchone()[0]
-    log.info(f"Wrote {row_count:,} rows to {output_path}")
-    return {"row_count": row_count, "output_path": output_path}
-
-
 class EbiBiosampleSource:
     """EBI BioSamples, partitioned by calendar day (the ``Source`` protocol).
 
@@ -251,11 +217,10 @@ def ebi_biosample_extract(
     end_day: str | None = None,
     rerun_current_day: bool = True,
     force: bool = False,
-    consolidate: bool = True,
     max_workers: int = MAX_WORKERS,
 ) -> list[dict]:
     """Extract every calendar day whose semaphore is missing, plus today."""
-    results = run_extraction(
+    return run_extraction(
         EbiBiosampleSource(
             start_day=start_day,
             end_day=end_day,
@@ -264,11 +229,6 @@ def ebi_biosample_extract(
         force=force,
         max_workers=max_workers,
     )
-
-    if consolidate:
-        consolidate_ebi_biosample_parquet()
-
-    return results
 
 
 @click.group()
@@ -280,13 +240,11 @@ def cli() -> None:
 @click.option("--start-day", default="2021-01-01", show_default=True)
 @click.option("--end-day", default=None)
 @click.option("--force", is_flag=True, help="Re-extract every partition.")
-@click.option("--no-consolidate", is_flag=True, help="Skip the parquet rollup.")
 @click.option("--max-workers", default=MAX_WORKERS, show_default=True)
 def run_command(
     start_day: str,
     end_day: str | None,
     force: bool,
-    no_consolidate: bool,
     max_workers: int,
 ) -> None:
     """Extract every pending EBI BioSample day partition."""
@@ -297,7 +255,6 @@ def run_command(
         start_day=start_day,
         end_day=end_day,
         force=force,
-        consolidate=not no_consolidate,
         max_workers=max_workers,
     )
     extracted = [r for r in results if not r.get("skipped")]
