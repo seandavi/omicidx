@@ -32,11 +32,13 @@ ExecStart=/usr/bin/flock -w 3600 %t/omicidx-extract.lock %h/.local/bin/uv run py
 # RuntimeMaxSec= silently has no effect on Type=oneshot (systemd quirk, verified
 # with `systemd-analyze verify` for cdsci-lake) — use TimeoutStartSec=.
 # A no-op run (every semaphore present) finishes in a couple of minutes: just the
-# Mirroring glob. A real new batch is 4 entities x ~75 mirror files, 4 at a time,
-# the `run` entity alone being hundreds of millions of records. The whole 5-domain
-# raw-extract took 4-5h inside daily-pipeline, so 6h is real headroom for SRA
-# alone without false-alarming on a big-but-healthy night.
-TimeoutStartSec=21600
+# Mirroring glob. The monthly Full batch is the long pole: sample (~45M records,
+# ~4M/h) and experiment (~43M, ~6M/h) parse concurrently in one GIL-bound process,
+# so sample alone needs ~11h. The old 6h ceiling killed both every night from
+# 2026-09 on — a Full partition is one unresumable stream, so each kill restarted
+# it from zero and sra/{sample,experiment} never got past 2026-08-01_Full.
+# 20h fits under the 24h timer period.
+TimeoutStartSec=72000
 Nice=10
 
 [Install]

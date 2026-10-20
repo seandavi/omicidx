@@ -31,15 +31,16 @@ EnvironmentFile=/home/davsean/Documents/git/omicidx/.env
 # where uv is installed, so `env uv` exits 127. `systemd-analyze verify` does NOT
 # catch it — only actually starting the unit does (#153, and cdsci-lake's
 # retractionwatch.service has failed every night on exactly this).
-# Wait up to 5 h for SRA to finish (its own ceiling is 6 h from 01:00 UTC), then run.
-ExecStart=/usr/bin/flock -w 18000 %t/omicidx-extract.lock %h/.local/bin/uv run python -m omicidx.prefect.flows.biosample run
+# Wait up to 12 h for SRA to finish: a Full-batch SRA night runs ~11h from 01:00
+# UTC (its ceiling is 20h), i.e. past this unit's 04:00 UTC start by ~8h.
+ExecStart=/usr/bin/flock -w 43200 %t/omicidx-extract.lock %h/.local/bin/uv run python -m omicidx.prefect.flows.biosample run
 # RuntimeMaxSec= silently has no effect on Type=oneshot — use TimeoutStartSec=.
 # This is the heavy job: a multi-GB gzip download plus a full streaming XML parse
 # of ~40M BioSample records into JSONL, then the same for BioProject, then a
 # DuckDB JSONL->parquet pass. Unlike SRA there is no partitioning to resume from,
 # so a timeout throws away the whole night's work — size it well past a slow-FTP
-# night. 10h, plus up to 5 h waiting on the lock above: 15 h.
-TimeoutStartSec=54000
+# night. 10h, plus up to 12 h waiting on the lock above: 22 h (< the 24h period).
+TimeoutStartSec=79200
 Nice=10
 
 [Install]
