@@ -12,9 +12,12 @@ the semaphores are the per-partition ledger. The module path still says
 `prefect` only because the rename is #160.
 """
 
+import concurrent.futures
 import datetime
+import functools
 import gzip
 import logging
+import multiprocessing
 import re
 import shutil
 import tempfile
@@ -36,6 +39,8 @@ ENTITIES = ["study", "sample", "experiment", "run"]
 #: Concurrent mirror files in flight. Was `ThreadPoolTaskRunner(max_workers=4)`;
 #: kept at 4 so the migration changes the mechanism, not the load on NCBI.
 MAX_WORKERS = 4
+
+LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
 
 
 # ---------------------------------------------------------------------------
@@ -313,6 +318,27 @@ def _write_parquet_chunks(
     return total, part
 
 
+def _write_parquet_chunks_in_subprocess(
+    url: str, entity: str, out_dir: UPath
+) -> tuple[int, int]:
+    """`_write_parquet_chunks` in a fresh process, so partitions parse in parallel.
+
+    The parse is pure Python, so the driver's threads serialize on the GIL: on
+    the 2026-10-01 Full batch the whole unit sat at one core and ``sample``
+    (~45M records) needed ~11h (#188). One process per partition gives each
+    mirror file its own core; the driver thread just waits on it. ``spawn``, not
+    fork: forking a process that already has worker threads can deadlock.
+    """
+    with concurrent.futures.ProcessPoolExecutor(
+        max_workers=1,
+        mp_context=multiprocessing.get_context("spawn"),
+        initializer=functools.partial(
+            logging.basicConfig, level=logging.INFO, format=LOG_FORMAT
+        ),
+    ) as pool:
+        return pool.submit(_write_parquet_chunks, url, entity, out_dir).result()
+
+
 @lru_cache(maxsize=1)
 def _mirror_index() -> dict[str, dict]:
     """Composite-key -> mirror entry for the current batch (listed once/process).
@@ -346,7 +372,7 @@ def extract_sra_partition(key: str, force: bool = False) -> dict:
     date_str = entry["date"].strftime("%Y-%m-%d")
     stage = "Full" if entry["is_full"] else "Incremental"
     out_dir = get_upath("sra", "raw", entity) / f"date={date_str}" / f"stage={stage}"
-    records, parts = _write_parquet_chunks(
+    records, parts = _write_parquet_chunks_in_subprocess(
         url=entry["url"], entity=entity, out_dir=out_dir
     )
     log.info(f"{entity} {leaf}: wrote {records:,} records in {parts} parquet parts")
@@ -418,9 +444,7 @@ def cli() -> None:
 @click.option("--max-workers", default=MAX_WORKERS, show_default=True)
 def run_command(force: bool, max_workers: int) -> None:
     """Extract every pending SRA mirror partition."""
-    logging.basicConfig(
-        level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
-    )
+    logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
     results = sra_extract(force=force, max_workers=max_workers)
     extracted = [r for r in results if not r.get("skipped")]
     rows = sum(r.get("row_count", 0) for r in extracted)
