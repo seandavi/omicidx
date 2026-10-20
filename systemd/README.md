@@ -151,22 +151,18 @@ Snapshots written by the downstream chain carry `run_id` in their
 for any snapshot you find in the lake. (Snapshots written before #158 carry
 `prefect_run_id` instead; those ids are gone with the server.)
 
-## GEO: expect a backfill before it settles
+## GEO: never stack two extracts
 
-`omicidx-geo-extract` has 74 pending months when first installed — GEO has
-never gotten past `2020-07`. Each month is ~22 min, so the 6h `TimeoutStartSec`
-clears roughly 16 months a night and the run *will* hit that timeout (and fire
-an ntfy alert) for the first four or five nights. That is expected: semaphores
-make the next night resume where it stopped. Watch it drain with
-
-```bash
-omicidx-prefect semaphores list geo | head -1
-```
-
-To burn the backfill down faster, run it in the foreground with no deadline:
+The 74-month backlog drained 2026-08-17 (#174), so a normal night is minutes.
+What GEO cannot tolerate is two copies of itself against NCBI (#154), so the
+unit holds `%t/omicidx-geo.lock`. Any manual or forced re-extract must take
+the same lock, e.g.:
 
 ```bash
-uv run python -m omicidx.prefect.flows.geo run   # resumable; ^C is safe
+systemd-run --user --unit=omicidx-geo-reextract -p WorkingDirectory=$PWD \
+  -p EnvironmentFile=$PWD/.env /usr/bin/flock /run/user/$UID/omicidx-geo.lock \
+  ~/.local/bin/uv run python -m omicidx.prefect.flows.geo run \
+  --force --start-month 2005-01 --end-month 2020-06
 ```
 
 Copy, don't symlink: symlinked units go dangling when a repo moves, and systemd
