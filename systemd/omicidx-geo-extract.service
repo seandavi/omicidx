@@ -12,8 +12,10 @@ Wants=network-online.target
 OnFailure=ntfy-notify@%N.service
 # Deliberately NO Conflicts=. GEO is not bandwidth-heavy like sra/biosample
 # (it is tens of thousands of small acc.cgi requests, ~0.2 GB RSS); what it
-# cannot tolerate is *another copy of itself* on the same NCBI endpoint, and
-# Type=oneshot + systemd already guarantees one instance of this unit.
+# cannot tolerate is *another copy of itself* on the same NCBI endpoint.
+# Type=oneshot guarantees one instance of this unit; the flock on
+# %t/omicidx-geo.lock (ExecStart) extends that to manual/transient re-extracts,
+# which must take the same lock (see systemd/README.md).
 
 [Service]
 Type=oneshot
@@ -22,17 +24,17 @@ EnvironmentFile=/home/davsean/Documents/git/omicidx/.env
 # NOT `/usr/bin/env uv` — systemd --user gives a minimal PATH that excludes
 # ~/.local/bin, so `env uv` exits 127. `systemd-analyze verify` does not catch
 # it; only starting the unit does. See #153 / commit 9c4680a.
-ExecStart=%h/.local/bin/uv run python -m omicidx.prefect.flows.geo run
+# Waits up to 18h for a manual re-extract holding the lock (a full 2005-2020
+# --force pass is ~20h).
+ExecStart=/usr/bin/flock -w 64800 %t/omicidx-geo.lock %h/.local/bin/uv run python -m omicidx.prefect.flows.geo run
 # RuntimeMaxSec= silently has no effect on Type=oneshot — use TimeoutStartSec=.
 #
 # Sizing, from measurement rather than guesswork (#154): one month is one
 # acc.cgi request per accession, ~62k for a 2020 month, and a single process
-# sustains ~43 req/s => ~22 min/month. An incremental night is one month (the
-# current one). But 74 months are still pending — GEO has never gotten past
-# 2020-07 — so the first nights are a backfill: 6h clears ~16 months, and
-# semaphores make the next night resume exactly where this one stopped. Five
-# or six nights to catch up, then it is a 20-minute job forever.
-TimeoutStartSec=21600
+# sustains ~43 req/s => ~22 min/month. A normal night is the current month plus
+# any month not yet marked done: minutes. 24h = up to 18h lock wait + 6h run; a
+# fire while the unit is still active is skipped, so this cannot stack.
+TimeoutStartSec=86400
 Nice=10
 
 [Install]
