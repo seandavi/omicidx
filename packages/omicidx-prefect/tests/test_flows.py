@@ -351,3 +351,23 @@ def test_retry_gives_one_second_attempt_then_gives_up():
         return "ok"
 
     assert fails_once.retry_with(wait=tenacity.wait_fixed(0))() == "ok"
+
+
+def test_sra_load_reads_only_completed_partitions(monkeypatch, tmp_path):
+    """#189: ducklake-load must never MERGE a partition without a semaphore."""
+    _stub_env(monkeypatch, tmp_path)
+    from omicidx.prefect.flows.ducklake_sra import _done_partitions
+    from omicidx.prefect.semaphore import SemaphoreStore
+
+    sem = SemaphoreStore("sra/sample")
+    sem.mark_done("2026-10-01_Full", metadata={"parquet_parts": 87})
+    sem.mark_done("2026-10-19_Incremental", metadata={"parquet_parts": 1})
+    sem.mark_done("2026-10-20_Incremental", metadata={"parquet_parts": 0})
+    # 2026-10-21 is in flight: raw chunks exist, no semaphore yet.
+
+    globs, new_max = _done_partitions("sample", since="2026-10-19")
+    assert [g.split("/")[-3] for g in globs] == ["date=2026-10-19"]
+    assert new_max == "2026-10-19"
+
+    globs, _ = _done_partitions("sample", since=None)
+    assert [g.split("/")[-2] for g in globs] == ["stage=Full", "stage=Incremental"]
