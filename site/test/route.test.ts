@@ -1,0 +1,35 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { route } from "../src/route.ts";
+
+const at = (u: string) => route(new URL(u));
+
+test("site host: docs everywhere but /data", () => {
+  assert.deepEqual(at("https://omicidx.cancerdatasci.org/"), { kind: "docs" });
+  assert.deepEqual(at("https://omicidx.cancerdatasci.org/guides/x/"), { kind: "docs" });
+  assert.deepEqual(at("https://omicidx.cancerdatasci.org/database/"), { kind: "docs" });
+});
+
+test("site host: /data/* strips the prefix", () => {
+  const data = (key: string) => ({ kind: "data", key, base: "/data" });
+  assert.deepEqual(at("https://omicidx.cancerdatasci.org/data"), data(""));
+  assert.deepEqual(at("https://omicidx.cancerdatasci.org/data/"), data(""));
+  assert.deepEqual(
+    at("https://omicidx.cancerdatasci.org/data/latest/a%20b.parquet"),
+    data("latest/a b.parquet"),
+  );
+});
+
+test("data host: bucket at /", () => {
+  const data = (key: string) => ({ kind: "data", key, base: "" });
+  assert.deepEqual(at("https://data.omicidx.cancerdatasci.org/"), data(""));
+  assert.deepEqual(
+    at("https://data.omicidx.cancerdatasci.org/latest/manifest.json"),
+    data("latest/manifest.json"),
+  );
+  // no /data alias here: v{date}/data/ is a real bucket prefix
+  assert.deepEqual(
+    at("https://data.omicidx.cancerdatasci.org/data/x"),
+    data("data/x"),
+  );
+});

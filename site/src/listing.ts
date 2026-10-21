@@ -6,6 +6,7 @@ export async function listDirectory(
   bucket: R2Bucket,
   prefix: string,
   acceptsHtml: boolean,
+  base: string,
 ): Promise<Response> {
   const directories: string[] = [];
   const files: { key: string; size: number; lastModified: string }[] = [];
@@ -27,7 +28,7 @@ export async function listDirectory(
   } while (cursor);
 
   if (acceptsHtml) {
-    return htmlListing(prefix, directories, files);
+    return htmlListing(prefix, directories, files, base);
   }
 
   return Response.json({ prefix, directories, files }, {
@@ -60,27 +61,28 @@ function htmlListing(
   prefix: string,
   directories: string[],
   files: { key: string; size: number; lastModified: string }[],
+  base: string,
 ): Response {
   const title = prefix ? `/${escapeHtml(prefix)}` : "OmicIDX Data";
   const isRoot = !prefix;
 
-  const breadcrumbs = buildBreadcrumbs(prefix);
+  const breadcrumbs = buildBreadcrumbs(prefix, base);
 
   const parentRow = prefix
-    ? `<tr><td><a href="/${encodePath(prefix.replace(/[^/]+\/$/, ""))}">../</a></td><td></td><td></td></tr>`
+    ? `<tr><td><a href="${base}/${encodePath(prefix.replace(/[^/]+\/$/, ""))}">../</a></td><td></td><td></td></tr>`
     : "";
 
   const dirRows = directories
     .map((d) => {
       const name = d.replace(prefix, "");
-      return `<tr><td><a href="/${encodePath(d)}">${escapeHtml(name)}</a></td><td>&mdash;</td><td>&mdash;</td></tr>`;
+      return `<tr><td><a href="${base}/${encodePath(d)}">${escapeHtml(name)}</a></td><td>&mdash;</td><td>&mdash;</td></tr>`;
     })
     .join("\n");
 
   const fileRows = files
     .map((f) => {
       const name = f.key.replace(prefix, "");
-      return `<tr><td><a href="/${encodePath(f.key)}">${escapeHtml(name)}</a></td><td>${formatBytes(f.size)}</td><td>${f.lastModified.slice(0, 10)}</td></tr>`;
+      return `<tr><td><a href="${base}/${encodePath(f.key)}">${escapeHtml(name)}</a></td><td>${formatBytes(f.size)}</td><td>${f.lastModified.slice(0, 10)}</td></tr>`;
     })
     .join("\n");
 
@@ -139,13 +141,13 @@ function htmlListing(
   });
 }
 
-function buildBreadcrumbs(prefix: string): string {
+function buildBreadcrumbs(prefix: string, base: string): string {
   const parts = prefix.split("/").filter(Boolean);
   let path = "";
-  const crumbs = [`<a href="/">Home</a>`];
+  const crumbs = [`<a href="${base}/">Home</a>`];
   for (const part of parts) {
     path += part + "/";
-    crumbs.push(`<a href="/${encodePath(path)}">${escapeHtml(part)}</a>`);
+    crumbs.push(`<a href="${base}/${encodePath(path)}">${escapeHtml(part)}</a>`);
   }
   return crumbs.join(" / ");
 }

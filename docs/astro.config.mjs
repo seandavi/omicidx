@@ -4,7 +4,7 @@ import starlight from "@astrojs/starlight";
 
 // https://astro.build/config
 export default defineConfig({
-  site: "https://docs.omicidx.cancerdatasci.org",
+  site: "https://omicidx.cancerdatasci.org",
   integrations: [
     starlight({
       title: "OmicIDX",
