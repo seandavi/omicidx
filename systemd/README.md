@@ -29,7 +29,7 @@ it crawls the EBI BioSamples HTTP API rather than pulling an NCBI bulk file, so
 it does not contend for the bandwidth the two heavy jobs fight over.
 
 `omicidx-downstream` is the entire post-extraction chain in one unit — lake load
-→ transform → parquet export → postgres load → publish bundle. One unit, not
+→ transform → parquet export → publish bundle. One unit, not
 five: the stages are strictly sequential and each consumes the previous one's
 output, so splitting them would only buy `After=` ordering the single process
 already has. It declares no `Conflicts=` with the extracts either — the load
@@ -84,7 +84,6 @@ earlier one is safe, just slower:
 omicidx-prefect run ducklake-load
 omicidx-prefect run transform
 omicidx-prefect run parquet-export
-omicidx-prefect run postgres
 omicidx-prefect run publish-bundle
 ```
 
@@ -134,10 +133,7 @@ only checks syntax; it passes a unit whose `ExecStart=` cannot be found at all.
 
 `EnvironmentFile=` points every unit at the repo-root `.env`, and they run on
 the **host**, not in a container. That killed the old host/container split:
-`POSTGRES_URI` used to say `@pg_main:5432` (a name that only resolves inside
-the Docker network) because the worker read the same file from inside it.
-Both `POSTGRES_URI` and `DUCKLAKE_URI` now point at `127.0.0.1:5432`, the port
-`pg_main` publishes. There is no second value to keep in sync.
+`DUCKLAKE_URI` points at `127.0.0.1:5432`, the port `pg_main` publishes. There is no second value to keep in sync.
 
 Extraction leaves no `lake_ops.run` row by design (#149): it writes raw files to
 R2 and adds no DuckLake snapshot, so the ledger is the per-partition semaphores

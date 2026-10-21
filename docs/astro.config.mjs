@@ -31,15 +31,6 @@ export default defineConfig({
           ],
         },
         {
-          label: "API",
-          items: [
-            { label: "Overview", slug: "api/overview" },
-            { label: "Pagination", slug: "api/pagination" },
-            { label: "Rate limits", slug: "api/rate-limits" },
-            { label: "Reference (OpenAPI)", slug: "api/reference" },
-          ],
-        },
-        {
           label: "Guides",
           items: [
             { label: "Overview", slug: "guides" },

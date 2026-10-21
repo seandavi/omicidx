@@ -34,7 +34,6 @@ The sidebar TOC is configured in `astro.config.mjs`.
 
 - **Markdown vs MDX:** plain `.md` for prose pages; `.mdx` only when the page imports a component (e.g., `Wip` or `ScalarReference`).
 - **Construction zones:** mark partially-written sections with the `Wip` component so visitors know what's stable. Out-of-date docs that claim authority are worse than no docs.
-- **API reference is auto-generated.** The page at `/api/reference/` renders the live OpenAPI spec at `https://api-omicidx.cancerdatasci.org/openapi.json` via Scalar. Don't hand-write endpoint docs — fix the FastAPI source instead.
 
 ## Hosting
 
@@ -46,7 +45,7 @@ cd docs
 docker compose up -d --build
 ```
 
-The `Dockerfile` is multi-stage: `node:22-alpine` builds the static site, `caddy:2-alpine` serves it with zstd/gzip compression. The `proxy` Docker network and Cloudflare cert resolver match the existing `omicidx-api` setup — no new infrastructure required.
+The `Dockerfile` is multi-stage: `node:22-alpine` builds the static site, `caddy:2-alpine` serves it with zstd/gzip compression. The `proxy` Docker network and Cloudflare cert resolver are shared with the other services on this host.
 
 To redeploy after content changes:
 

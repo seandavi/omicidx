@@ -185,13 +185,6 @@ def run_transform(environment: str) -> None:
     transform(environment=environment)
 
 
-@run.command("postgres")
-def run_postgres() -> None:
-    from omicidx.prefect.flows.postgres import postgres_load
-
-    postgres_load()
-
-
 @run.command("duckdb")
 def run_duckdb() -> None:
     from omicidx.prefect.flows.sql import build_omicidx_duckdb
@@ -201,7 +194,7 @@ def run_duckdb() -> None:
 
 @run.command("daily")
 def run_daily() -> None:
-    """The downstream chain: ducklake-load -> transform -> parquet-export -> postgres -> publish-bundle.
+    """The downstream chain: ducklake-load -> transform -> parquet-export -> publish-bundle.
 
     Extraction is NOT included — each domain runs on its own timer (#149).
     """

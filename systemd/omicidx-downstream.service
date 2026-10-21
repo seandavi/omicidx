@@ -1,9 +1,9 @@
 # The whole post-extraction chain, in one unit (#158): lake load -> transform
-# -> parquet export -> postgres load -> publish bundle. This is what replaced
+# -> parquet export -> publish bundle. This is what replaced
 # the Prefect `daily-pipeline` deployment and the `omicidx-prefect-worker`
 # container that executed it (#160).
 [Unit]
-Description=Load the omicidx DuckLake from raw, transform, export, serve, and publish
+Description=Load the omicidx DuckLake from raw, transform, export, and publish
 Documentation=https://github.com/seandavi/omicidx/issues/158
 After=network-online.target
 Wants=network-online.target
@@ -32,11 +32,11 @@ EnvironmentFile=/home/davsean/Documents/git/omicidx/.env
 Environment=TMPDIR=/data/davsean/tmp
 ExecStart=%h/.local/bin/uv run python -m omicidx.prefect.flows.main run
 # RuntimeMaxSec= silently has no effect on Type=oneshot — use TimeoutStartSec=.
-# Sized from the per-stage Prefect history, which is the only runtime evidence
-# there is: postgres-load 8.7h worst case, ducklake-load 78m, parquet-export
-# 31m, publish-bundle 75m — ~12h stacked. 16h leaves headroom for a slow night
-# without letting a hung stage sit until tomorrow's run collides with it.
-TimeoutStartSec=57600
+# Sized from the per-stage Prefect history: ducklake-load 78m, parquet-export
+# 31m, publish-bundle 75m, ~3h stacked once postgres-load (8.7h worst case)
+# went with the API (#196). 8h leaves headroom for a slow night without letting
+# a hung stage sit until tomorrow's run collides with it.
+TimeoutStartSec=28800
 Nice=10
 
 [Install]
