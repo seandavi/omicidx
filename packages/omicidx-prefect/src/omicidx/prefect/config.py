@@ -6,22 +6,16 @@ helper functions. Prefect flows pull these from module scope rather than
 injecting them as resource parameters.
 """
 
-import asyncio
 import os
-import re
 import tempfile
-from contextlib import contextmanager
 from datetime import UTC
 from functools import lru_cache
 from urllib.parse import urlparse
 
 import duckdb
-import sqlglot
 from cdsci.lake.config import Settings as LakeSettings
 from cdsci.lake.connect import lake_connect
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import create_async_engine
 from upath import UPath
 
 
@@ -38,7 +32,6 @@ class Settings(BaseSettings):
     s3_endpoint: str
     s3_region: str = "auto"
     s3_url_style: str = "path"
-    postgres_uri: str | None = None
     ducklake_uri: str | None = None
     ducklake_data_path: str | None = None
     # Public Parquet export (reverse-ETL target; ADR-0004). The dedicated
@@ -286,69 +279,3 @@ def get_lake_connection(read_only: bool = False) -> duckdb.DuckDBPyConnection:
     watermarks).
     """
     return lake_connect(_lake_settings(), read_only=read_only)
-
-
-# ---------------------------------------------------------------------------
-# Postgres helpers (ports PostgresResource)
-# ---------------------------------------------------------------------------
-
-
-def _require_postgres_uri() -> str:
-    uri = settings().postgres_uri
-    if not uri:
-        raise RuntimeError("POSTGRES_URI is not set")
-    return uri
-
-
-def postgres_async_uri() -> str:
-    return _require_postgres_uri().replace("postgresql://", "postgresql+asyncpg://", 1)
-
-
-def _split_postgres_statements(sql: str) -> list[str]:
-    if not sql.strip():
-        raise ValueError("SQL statement cannot be empty")
-    parsed = [
-        expr.sql(dialect="postgres")
-        for expr in sqlglot.parse(sql, read="postgres")
-        if expr is not None
-    ]
-    if not parsed:
-        raise ValueError(
-            "SQL parsing produced no executable statements "
-            "(may contain only comments/whitespace or be malformed)"
-        )
-    return parsed
-
-
-def execute_postgres_sql(*statements: str) -> None:
-    """Run SQL statements against Postgres via SQLAlchemy async + asyncpg."""
-
-    async def _run() -> None:
-        engine = create_async_engine(postgres_async_uri())
-        async with engine.begin() as conn:
-            for sql in statements:
-                for stmt in _split_postgres_statements(sql):
-                    await conn.execute(text(stmt))
-        await engine.dispose()
-
-    asyncio.run(_run())
-
-
-@contextmanager
-def attach_postgres(con: duckdb.DuckDBPyConnection, schema: str = "public"):
-    """Attach the configured Postgres database to a DuckDB connection."""
-    uri = _require_postgres_uri()
-    parsed = urlparse(uri)
-    if parsed.scheme != "postgresql" or not parsed.hostname:
-        raise ValueError("POSTGRES_URI must be a valid postgresql:// URI")
-    if any(ch in uri for ch in ("'", ";", "\n", "\r", "\x00")):
-        raise ValueError("POSTGRES_URI contains unsupported characters")
-    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", schema):
-        raise ValueError("Schema name must be a valid SQL identifier")
-
-    con.execute("INSTALL postgres; LOAD postgres;")
-    con.execute(f"ATTACH '{_q(uri)}' AS pg (TYPE POSTGRES, SCHEMA '{_q(schema)}')")
-    try:
-        yield
-    finally:
-        con.execute("DETACH pg")

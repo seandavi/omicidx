@@ -1,7 +1,7 @@
 """Top-level DuckLake load flow.
 
 Assembles every per-entity loader into one flow that upserts raw data into
-`lake.<schema>.*`. Sits between `raw-extract` and `postgres-load` in the
+`lake.<schema>.*`. Sits between `raw-extract` and `transform` in the
 daily pipeline (wired in P3). Shared helpers live in `ducklake.py`; each
 entity's source projection + task lives in its own `ducklake_<entity>.py`
 module so they can evolve independently.

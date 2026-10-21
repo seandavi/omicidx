@@ -11,7 +11,7 @@ This module keeps the bioproject loader plus the shared write helpers
 still used by the read-consumers and the parked derived loaders
 (`_stamped_txn`, `replace_to_ducklake`, `_commit_extra`).
 
-This sits between `raw-extract` and `postgres-load`. Loaders write to
+This sits between `raw-extract` and `transform`. Loaders write to
 `LAKE_SCHEMA` (production `omicidx`); pass an explicit `lake_schema` to
 target a development schema (e.g. `omicidx_dev`) for validation.
 

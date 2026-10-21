@@ -87,8 +87,8 @@ provenance manifest). See `CLAUDE.md` and `docs/specs/omicidx-deliverables.md`
 for the architecture, and [ADR-0004](docs/adrs/0004-public-serving-parquet-plus-views-sql.md)
 for the public-serving contract.
 
-A read-only REST API (`packages/omicidx-api/`) and R/Python clients are optional,
-gated deliverables — not part of the core public artifact above.
+R/Python clients are an optional, gated deliverable — not part of the core
+public artifact above. The REST API was retired in #196: almost nobody used it.
 
 ## License
 

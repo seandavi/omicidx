@@ -23,7 +23,7 @@ See [Data sources](/overview/data-sources/) for source URLs, refresh cadences, a
 
 ## Why it exists
 
-Querying biological metadata across the major archives means dealing with five different XML/SOFT formats, several FTP layouts, inconsistent identifier conventions, and no usable join keys. OmicIDX normalizes those into a single relational model with stable accessions and cross-source links, then exposes it as a REST API and as a single downloadable DuckDB file.
+Querying biological metadata across the major archives means dealing with five different XML/SOFT formats, several FTP layouts, inconsistent identifier conventions, and no usable join keys. OmicIDX normalizes those into a single relational model with stable accessions and cross-source links, then publishes it as public Parquet and a downloadable DuckDB snapshot.
 
 ## Who uses it
 
@@ -33,4 +33,4 @@ Researchers, bioinformaticians, and data engineers who want to:
 - Build pipelines that resolve study/sample/experiment relationships across sources.
 - Get a downloadable analytical snapshot (DuckDB) for offline work.
 
-The API is open and rate-limited; no API key required. See [Rate limits](/api/rate-limits/).
+Everything is anonymous HTTPS; no account or key required. See [the DuckDB snapshot guide](/guides/duckdb-snapshot/).

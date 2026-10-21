@@ -5,8 +5,8 @@ template: splash
 hero:
   tagline: A unified, queryable index of biological metadata across NCBI, EBI, and PubMed — built for researchers.
   actions:
-    - text: API reference
-      link: /api/reference/
+    - text: Query the data
+      link: /guides/duckdb-snapshot/
       icon: right-arrow
     - text: View on GitHub
       link: https://github.com/omicidx/omicidx
@@ -19,10 +19,9 @@ import { Card, CardGrid } from "@astrojs/starlight/components";
 ## What you can do here
 
 <CardGrid stagger>
-  <Card title="Query the API" icon="rocket">
-    Hit `https://api-omicidx.cancerdatasci.org` with curl, Python, or R. The
-    [API reference](/api/reference/) is auto-generated from the live OpenAPI
-    spec.
+  <Card title="Query the data" icon="rocket">
+    Read the public Parquet and DuckDB snapshot over anonymous HTTPS. No
+    account, no key. See [the DuckDB snapshot guide](/guides/duckdb-snapshot/).
   </Card>
   <Card title="Understand the data" icon="document">
     [Overview](/overview/what-is-omicidx/) of what OmicIDX indexes and where it

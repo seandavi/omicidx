@@ -5,9 +5,8 @@ description: Query the public OmicIDX data snapshot with DuckDB — offline, ove
 
 OmicIDX publishes its entire metadata index as a **public, credential-free data
 snapshot** you can query with [DuckDB](https://duckdb.org). No API key, no
-account, no rate limits — just anonymous HTTPS. This is the fastest way to run
-large analytical queries (joins, aggregations, full scans) that the REST API is
-not built for.
+account, no rate limits — just anonymous HTTPS. It handles both single-record
+lookups and large analytical queries (joins, aggregations, full scans).
 
 Everything lives under one base URL:
 
@@ -159,6 +158,3 @@ ATTACH 'https://data.omicidx.cancerdatasci.org/v2026-07-11/omicidx.duckdb'
   installs it on first use).
 - Reads are anonymous HTTPS range requests — behind a strict firewall, allow
   `data.omicidx.cancerdatasci.org`.
-- For single-record lookups and programmatic access, the
-  [REST API](/api/overview/) is the better fit; use this snapshot for bulk and
-  analytical queries.

@@ -13,7 +13,6 @@ dependencies = [
     "httpx>=0.28",
     "orjson>=3.10",
     "duckdb>=1.5.3",
-    "sqlglot>=27.0",
     "universal-pathlib>=0.2.2",
     "s3fs>=2023.0.0",
     "tenacity>=8.0",
@@ -21,14 +20,11 @@ dependencies = [
     "polars-lts-cpu>=1.32",
     "python-dotenv>=1.1",
     "anyio[trio]>=4.0",
-    "sqlalchemy[asyncio]>=2.0",
-    "asyncpg>=0.30",
     "python-dateutil>=2.9",
     "pydantic-settings>=2.0",
     "click>=8.0",
     "cdsci-lake @ git+https://github.com/seandavi/cdsci-lake@v0.3.1",
     "sqlmesh>=0.236.0",
-    "psycopg2-binary>=2.9.12",
 ]
 
 [project.scripts]

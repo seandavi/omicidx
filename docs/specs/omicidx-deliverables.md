@@ -140,8 +140,9 @@ stable. Greenfield.
 ### (6) Performant API — OPTIONAL, GATED
 
 FastAPI over DuckDB or Postgres/ClickHouse. Gate: explicit request + a backend
-decision. `omicidx-api` (read-only FastAPI, Postgres-backed) is the existing
-base to build on, not a rewrite.
+decision. The earlier Postgres-backed `omicidx-api` was retired in #196 (48 data
+calls in five months, against ~5h of nightly `postgres-load`). Start
+from demonstrated demand, not from that code.
 
 ---
 
@@ -253,9 +254,8 @@ Grounded in the Phase-0 inspection, not assumptions. Live path is
 ### Endpoints (5)/(6)
 
 - (5): greenfield.
-- (6): `omicidx-api` (Postgres-backed FastAPI) is the base; backend choice
-  (DuckDB vs Postgres/ClickHouse) is an open decision deferred until the gate
-  opens.
+- (6): greenfield since #196 retired `omicidx-api`; backend choice
+  (DuckDB vs Postgres/ClickHouse) is deferred until the gate opens.
 
 ---
 
@@ -329,8 +329,7 @@ plus lineage (transform engine decision, §5) make each snapshot attestable.
 ### Gated E/F (opt-in only)
 
 - **E.** R/Python client over the DuckDB artifact. Gate: B + C stable.
-- **F.** Performant API. Gate: explicit request + backend decision; build on
-  `omicidx-api`.
+- **F.** Performant API. Gate: explicit request + backend decision.
 
 ---
 

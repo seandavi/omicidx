@@ -1,6 +1,6 @@
 """The downstream pipeline: everything after raw extraction (#158).
 
-    lake load → transform → parquet export → postgres load → publish bundle
+    lake load → transform → parquet export → publish bundle
 
 Run by `systemd/omicidx-downstream.timer` as
 `python -m omicidx.prefect.flows.main run`. One unit for the whole chain
@@ -9,7 +9,7 @@ the previous one's output, so five units would only buy `After=` ordering we
 already get for free — while adding four more things that can be half-enabled.
 
 Recovery after a mid-chain failure is per stage, not per chain:
-`omicidx-prefect run transform`, `... run postgres`, and so on. Every stage is
+`omicidx-prefect run transform`, `... run publish-bundle`, and so on. Every stage is
 idempotent, so re-running from an earlier stage is also safe, just slower.
 
 Raw extraction is NOT here. Each domain is its own scheduled EL process on its
@@ -25,7 +25,6 @@ import click
 from omicidx.prefect.flows.ducklake_load import ducklake_load
 from omicidx.prefect.flows.geo import fetch_rna_seq_counts
 from omicidx.prefect.flows.parquet_export import parquet_export
-from omicidx.prefect.flows.postgres import postgres_load
 from omicidx.prefect.flows.publish_bundle import publish_bundle
 from omicidx.prefect.flows.transform import transform
 
@@ -33,7 +32,7 @@ log = logging.getLogger(__name__)
 
 
 def daily_pipeline() -> None:
-    """Load the lake from raw, transform, export, serve, publish.
+    """Load the lake from raw, transform, export, publish.
 
     ``parquet_export`` returns the publish date it stamped v{date}/ with, and
     ``publish_bundle`` is pinned to that same date, so the frozen bundle (file
@@ -48,7 +47,6 @@ def daily_pipeline() -> None:
     ducklake_load()
     transform()
     date = parquet_export()
-    postgres_load()
     publish_bundle(date=date)
 
 
@@ -64,7 +62,7 @@ def run_command() -> None:
         level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
     )
     daily_pipeline()
-    click.echo("downstream: load → transform → export → postgres → publish complete")
+    click.echo("downstream: load → transform → export → publish complete")
 
 
 if __name__ == "__main__":

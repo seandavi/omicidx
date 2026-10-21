@@ -125,7 +125,7 @@ the recovery commands. In short:
 | weekly catalog maintenance | `omicidx-ducklake-maintenance` |
 
 The downstream chain is `ducklake-load → transform → parquet-export →
-postgres-load → publish-bundle`. `transform` is the SQLMesh mart build (lake
+publish-bundle`. `transform` is the SQLMesh mart build (lake
 views); `parquet-export` is the reverse-ETL (lake tables + marts → public
 Parquet, ADR-0004); `publish-bundle` builds the thin marts-only
 `omicidx.duckdb` into the frozen bundle.
@@ -150,7 +150,6 @@ S3_SECRET_ACCESS_KEY=...
 S3_ENDPOINT=https://....r2.cloudflarestorage.com
 S3_REGION=auto
 S3_URL_STYLE=path
-POSTGRES_URI=postgresql://omicidx@host:5432/omicidx
 
 # Public Parquet export (reverse-ETL; ADR-0004)
 PUBLIC_PARQUET_ROOT=r2://data-omicidx                       # dedicated public bucket

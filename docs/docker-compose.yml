@@ -14,6 +14,16 @@ services:
       - "traefik.http.routers.omicidx-docs.tls=true"
       - "traefik.http.routers.omicidx-docs.tls.certresolver=cloudflare"
       - "traefik.http.services.omicidx-docs.loadbalancer.server.port=80"
+      # The REST API was retired (#196); send its hostname to the docs.
+      # ponytail: lives here until one Worker serves everything (#198).
+      - "traefik.http.routers.omicidx-api-gone.rule=Host(`api-omicidx.cancerdatasci.org`)"
+      - "traefik.http.routers.omicidx-api-gone.entrypoints=websecure"
+      - "traefik.http.routers.omicidx-api-gone.tls=true"
+      - "traefik.http.routers.omicidx-api-gone.tls.certresolver=cloudflare"
+      - "traefik.http.routers.omicidx-api-gone.middlewares=omicidx-api-gone"
+      - "traefik.http.middlewares.omicidx-api-gone.redirectregex.regex=.*"
+      - "traefik.http.middlewares.omicidx-api-gone.redirectregex.replacement=https://docs.omicidx.cancerdatasci.org/"
+      - "traefik.http.middlewares.omicidx-api-gone.redirectregex.permanent=true"
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost/"]
       interval: 30s

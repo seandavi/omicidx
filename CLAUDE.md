@@ -37,8 +37,8 @@ Invariants that follow from the finalized decisions:
 
 ## Repo structure
 
-This is a **uv workspace** consolidating four packages (`omicidx-dagster` was
-retired 2026-07, Prefect excised 2026-08):
+This is a **uv workspace** consolidating three packages (`omicidx-dagster` was
+retired 2026-07, Prefect excised 2026-08, `omicidx-api` retired 2026-10 in #196):
 
 ```
 omicidx/                        # workspace root (no package of its own)
@@ -49,10 +49,8 @@ omicidx/                        # workspace root (no package of its own)
     │   └── src/omicidx/parsers/
     ├── omicidx-etl/            # Legacy `oidx` extractors (NCBI→raw). Superseded by
     │   └── src/omicidx/etl/    #   omicidx-prefect except europepmc/icite/nih_reporter (unported)
-    ├── omicidx-prefect/        # EL + transform pipeline (DuckLake), systemd-scheduled
-    │   └── src/omicidx/prefect/  #   name is vestigial — no Prefect since #158/#160
-    └── omicidx-api/            # Read-only FastAPI REST API backed by PostgreSQL
-        └── src/omicidx/api/
+    └── omicidx-prefect/        # EL + transform pipeline (DuckLake), systemd-scheduled
+        └── src/omicidx/prefect/  #   name is vestigial — no Prefect since #158/#160
 ```
 
 All packages share the `omicidx` **namespace package** (PEP 420 implicit — no `__init__.py` at `src/omicidx/`). `omicidx-etl` depends on `omicidx-parsers` as a workspace-local reference (`tool.uv.sources`).
@@ -68,7 +66,7 @@ uv sync
 # Run tests (parsers has network-hitting tests against live NCBI APIs)
 uv run pytest packages/omicidx-parsers/tests/
 uv run pytest packages/omicidx-etl/tests/
-uv run pytest packages/omicidx-api/tests/
+uv run pytest packages/omicidx-prefect/tests/
 
 # Run a single test file
 uv run pytest packages/omicidx-parsers/tests/geo/test_parser.py
@@ -136,8 +134,7 @@ nothing. Unit table + install steps: `systemd/README.md`.
 ```
 per-domain extract timers  ──(raw on R2)──▶  omicidx-downstream (one unit)
                                              ducklake-load → transform →
-                                             parquet-export → postgres-load →
-                                             publish-bundle
+                                             parquet-export → publish-bundle
 ```
 
 Extraction and the downstream chain are **decoupled**: nothing downstream waits
@@ -150,26 +147,12 @@ hostage (which is what GEO did for a month — #174).
 | `ducklake-load` | `flows/ducklake*.py` | MERGE raw → `lake.omicidx.*` (hash-gated, copy-on-write; SRA high-water-mark incremental) |
 | `transform` | `flows/transform.py` + `transform/` (SQLMesh) | `plan(prod)` materializes `src`→`stg`→`geometadb.*`/`sradb.*` marts as views in the lake |
 | `parquet-export` | `flows/parquet_export.py` | Reverse-ETL: COPY lake tables **and marts** → public Parquet `r2://data-omicidx/latest/*.parquet` + `latest/{sradb,geometadb}/*.parquet` (ADR-0004) |
-| `postgres-load` | `flows/postgres.py` | Reload API-serving Postgres tables from the lake (A/B-slot swap) |
 | `duckdb-build` | `flows/sql.py` | **Thin**: generate `CREATE VIEW` per mart over the public mart Parquet (no re-derivation); marts-only |
 
-- Config: `config.py` (`Settings` + `get_ducklake_connection`, `get_public_parquet_path`, etc.). Key env: `PUBLISH_ROOT`, `DUCKLAKE_URI`, `DUCKLAKE_DATA_PATH`, `PUBLIC_PARQUET_ROOT`, `PUBLIC_PARQUET_HTTPS_BASE`, `POSTGRES_URI`.
+- Config: `config.py` (`Settings` + `get_ducklake_connection`, `get_public_parquet_path`, etc.). Key env: `PUBLISH_ROOT`, `DUCKLAKE_URI`, `DUCKLAKE_DATA_PATH`, `PUBLIC_PARQUET_ROOT`, `PUBLIC_PARQUET_HTTPS_BASE`.
 - Catalog topology + MERGE/maintenance conventions: `DUCKLAKE.md`. Public-serving contract: `docs/adrs/0004`.
-- Operator CLI `omicidx-prefect` (`cli.py`) is the ad-hoc/recovery path: every `run` subcommand calls exactly what the matching timer calls, so a stage that failed overnight is re-run by hand (`omicidx-prefect run transform`, `... run postgres`). All stages are idempotent.
-- The units run on the **host**, so `.env` uses `127.0.0.1:5432` for both `POSTGRES_URI` and `DUCKLAKE_URI`. The old `pg_main` container-hostname split died with the worker.
-
-### omicidx-api
-
-Read-only REST API for entity lookups, deployed at `api-omicidx.cancerdatasci.org`. Key modules:
-
-- `omicidx.api.main` — FastAPI app, lifespan, middleware registration
-- `omicidx.api.models.tables` — SQLAlchemy 2.0 ORM models (BioProject, BioSample, SRA, GEO, PubMed)
-- `omicidx.api.routers` — endpoint routers per entity type
-- `omicidx.api.pagination` — base64url keyset cursor encode/decode
-- `omicidx.api.schemas.envelope` — consistent response envelope (data, meta, links, relationships)
-- `omicidx.api.config` — pydantic-settings with `OMICIDX_API_` env prefix
-
-Configuration via `OMICIDX_API_DATABASE_URL` (standard `postgresql://` URI, `+asyncpg` added internally).
+- Operator CLI `omicidx-prefect` (`cli.py`) is the ad-hoc/recovery path: every `run` subcommand calls exactly what the matching timer calls, so a stage that failed overnight is re-run by hand (`omicidx-prefect run transform`, `... run publish-bundle`). All stages are idempotent.
+- The units run on the **host**, so `.env` uses `127.0.0.1:5432` for `DUCKLAKE_URI`. The old `pg_main` container-hostname split died with the worker.
 
 ### Data flow
 
@@ -181,10 +164,6 @@ NCBI/EBI → omicidx-parsers (XML → Pydantic) → omicidx-prefect raw-extract 
                                               transform (SQLMesh: src → stg → marts)
                                                          ↓
                                    parquet-export → public Parquet + frozen bundle + thin marts-only omicidx.duckdb
-                                                         ↓
-                                              postgres-load (A/B-slot swap)
-                                                         ↓
-                                         omicidx-api (FastAPI REST endpoints)
 ```
 
 ### GitHub Actions
