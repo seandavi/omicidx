@@ -45,6 +45,8 @@ class Settings(BaseSettings):
     # survives a month (#201 D3); B′ later opens this dial (or drops pruning)
     # for retained-snapshot time travel.
     public_bundle_retention_days: int = 30
+    # Write token for the monthly HuggingFace release (flows/hf_release.py).
+    hf_token: str | None = None
 
     model_config = SettingsConfigDict(
         env_file=".env",

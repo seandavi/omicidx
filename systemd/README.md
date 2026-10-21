@@ -18,6 +18,7 @@ server, no worker container, and no deployment manifest — `prefect.yaml`,
 | `omicidx-pubmed-extract` | `python -m omicidx.prefect.flows.pubmed run` | hourly (+≤5m jitter) |
 | `omicidx-downstream` | `python -m omicidx.prefect.flows.main run` | daily 05:00 UTC (+≤15m jitter) |
 | `omicidx-ducklake-maintenance` | `omicidx-prefect run ducklake-maintenance` | Sunday 14:00 UTC (+≤30m jitter) |
+| `omicidx-hf-release` | `python -m omicidx.prefect.flows.hf_release run` | monthly, the 2nd 12:00 UTC (+≤15m jitter) |
 
 `omicidx-biosample-extract` covers **both** NCBI full dumps (BioSample and
 BioProject) in one unit: same machinery, two URLs, both unpartitioned. It and
@@ -103,14 +104,14 @@ failed"; the failing unit name in the body is what identifies it.
 
 ```bash
 for u in sra-extract ebi-biosample-extract biosample-extract pubmed-extract \
-         downstream ducklake-maintenance; do
+         downstream ducklake-maintenance hf-release; do
   cp systemd/omicidx-$u.{service,timer} ~/.config/systemd/user/
 done
 # once, shared, if not already present:
 cp ~/Documents/git/cdsci-lake/systemd/ntfy-notify@.service ~/.config/systemd/user/
 systemctl --user daemon-reload
 for u in sra-extract ebi-biosample-extract biosample-extract pubmed-extract \
-         downstream ducklake-maintenance; do
+         downstream ducklake-maintenance hf-release; do
   systemctl --user enable --now omicidx-$u.timer
 done
 ```

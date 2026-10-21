@@ -1,0 +1,26 @@
+# Monthly HuggingFace release (#204): copy the newest complete v{date}/ folder
+# from the public R2 bucket to hf.co/datasets/omicidx/omicidx, tagged YYYY-MM.
+[Unit]
+Description=Publish the monthly omicidx release to HuggingFace (omicidx/omicidx)
+Documentation=https://github.com/seandavi/omicidx/issues/204
+After=network-online.target
+Wants=network-online.target
+OnFailure=ntfy-notify@%N.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/davsean/Documents/git/omicidx
+EnvironmentFile=/home/davsean/Documents/git/omicidx/.env
+# The release is staged on local disk before upload (~73 GB as of 2026-10);
+# /tmp on this host is 30 GB. See omicidx-downstream.service.
+Environment=TMPDIR=/data/davsean/tmp
+# NOT `/usr/bin/env uv` — see the note in omicidx-sra-extract.service.
+ExecStart=%h/.local/bin/uv run python -m omicidx.prefect.flows.hf_release run
+# RuntimeMaxSec= has no effect on Type=oneshot. ~73 GB down from R2 and up to
+# HF; 12h covers a slow upload. A run that times out is re-run as-is: the
+# download keeps finished files and the upload is xet-deduplicated.
+TimeoutStartSec=43200
+Nice=10
+
+[Install]
+WantedBy=default.target
