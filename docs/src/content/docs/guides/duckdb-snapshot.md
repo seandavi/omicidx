@@ -1,38 +1,45 @@
 ---
-title: Working with the DuckDB snapshot
-description: Query the public OmicIDX data snapshot with DuckDB — offline, over HTTPS, no account or credentials. Includes the SRAdb- and GEOmetadb-compatible views.
+title: Query with DuckDB
+description: Query the public OmicIDX Parquet with DuckDB over anonymous HTTPS. Covers the published database, the SRAdb- and GEOmetadb-compatible tables, and the raw source tables.
 ---
 
-OmicIDX publishes its entire metadata index as a **public, credential-free data
-snapshot** you can query with [DuckDB](https://duckdb.org). No API key, no
-account, no rate limits — just anonymous HTTPS. It handles both single-record
-lookups and large analytical queries (joins, aggregations, full scans).
+OmicIDX publishes every table as Parquet over anonymous HTTPS. [DuckDB](https://duckdb.org)
+reads only the parts of each file that a query needs, so you can query tens of
+millions of rows from a laptop without downloading anything first.
 
-Everything lives under one base URL:
+## What's published
+
+The base URL is:
 
 ```
-https://data.omicidx.cancerdatasci.org/latest/
+https://omicidx.cancerdatasci.org/data/
 ```
 
-| File | What it is |
-|------|-----------|
-| `omicidx.duckdb` | A ready-to-query DuckDB database with all views defined |
-| `views.sql` | The view definitions, as portable SQL over the Parquet files |
-| `*.parquet` | One file per source table (`sra_studies.parquet`, `geo_series.parquet`, `biosamples.parquet`, …) |
-| `manifest.json` | Provenance for this snapshot (date, source commit, row counts) |
+(The older `https://data.omicidx.cancerdatasci.org/` serves the same files.)
 
-`latest/` always points at the most recent publish. Immutable dated snapshots
-live alongside it at `v{YYYY-MM-DD}/` (e.g. `v2026-07-11/`) — pin to one of
-those when you need a result to stay reproducible.
+Under it, `latest/` is rebuilt every night. Each night also gets an immutable
+`v{YYYY-MM-DD}/` folder, kept for 30 days. See [Versions and
+citation](/guides/versions-and-citation/) for which to use. Each folder contains:
 
-## Quick start — query without downloading
+| Path | What it is |
+|---|---|
+| `<table>.parquet` | One file per source table: `sra_studies`, `sra_samples`, `sra_experiments`, `sra_runs`, `sra_accessions`, `geo_series`, `geo_samples`, `geo_platforms`, `geo_series_with_rnaseq_counts`, `biosamples`, `bioprojects`, `pubmed_articles` |
+| `sradb/<table>.parquet` | SRAdb-compatible tables |
+| `geometadb/<table>.parquet` | GEOmetadb-compatible tables |
+| `omicidx.duckdb` | A small DuckDB database with a view over every Parquet file |
+| `views.sql` | The same views as plain SQL |
+| `manifest.json` | Publish date, transform commit, lake snapshot id, row counts |
 
-DuckDB can attach the published database directly over HTTPS and read only the
-bytes each query touches. Nothing is downloaded up front.
+You can browse a folder listing in your browser, e.g.
+[`latest/`](https://omicidx.cancerdatasci.org/data/latest/).
+
+## Attach the database
+
+`omicidx.duckdb` is a few hundred KB of view definitions. Attach it over HTTPS
+and query the views. The data stays remote.
 
 ```sql
-INSTALL httpfs; LOAD httpfs;
-ATTACH 'https://data.omicidx.cancerdatasci.org/latest/omicidx.duckdb'
+ATTACH 'https://omicidx.cancerdatasci.org/data/latest/omicidx.duckdb'
   AS omicidx (READ_ONLY);
 USE omicidx;
 
@@ -42,62 +49,64 @@ WHERE taxon_id = 9606          -- human
 LIMIT 10;
 ```
 
-That's it — you're querying tens of millions of SRA runs from a laptop.
+DuckDB loads its `httpfs` extension automatically for `https://` paths. If
+your install can't auto-load extensions, run `INSTALL httpfs; LOAD httpfs;`
+first.
 
-## Or download it and work offline
+## Read a Parquet file directly
 
-For repeated heavy querying, grab the database once and open it locally:
-
-```bash
-curl -O https://data.omicidx.cancerdatasci.org/latest/omicidx.duckdb
-duckdb omicidx.duckdb
-```
+Every table is a plain file, so you can skip the database and use
+`read_parquet`:
 
 ```sql
-SELECT study_accession, study_title
+SELECT count(*)
+FROM read_parquet('https://omicidx.cancerdatasci.org/data/latest/biosamples.parquet');
+
+SELECT study_accession, title, study_type
+FROM 'https://omicidx.cancerdatasci.org/data/latest/sra_studies.parquet'
+WHERE bioproject = 'PRJNA1147303';
+```
+
+Filters and column selection are pushed down, so only the matching parts of a
+file are fetched. `pubmed_articles.parquet` is about 37 GB, so filter it in
+place.
+
+## SRAdb-compatible tables (`sradb`)
+
+A modernized [SRAdb](https://bioconductor.org/packages/SRAdb/) schema. Legacy
+column names are kept where the data still exists, always-empty columns are
+dropped, and BioProject, GEO, and PubMed cross-references are added.
+
+| Table | One row per |
+|---|---|
+| `sradb.study` | SRA study (SRP/ERP/DRP) |
+| `sradb.sample` | SRA sample (SRS/ERS/DRS) |
+| `sradb.experiment` | SRA experiment (SRX/ERX/DRX) |
+| `sradb.run` | SRA run (SRR/ERR/DRR) |
+| `sradb.sra` | run, joined with its experiment, sample, and study |
+| `sradb.run_with_study` | run, with study title, type, and BioProject |
+| `sradb.rnaseq_runs`, `sradb.wgs_runs` | `run_with_study` filtered by library strategy |
+| `sradb.human_runs`, `sradb.mouse_runs` | `run_with_study` filtered by taxon |
+
+```sql
+SELECT study_accession, study_title, bioproject_accession, pubmed_ids
 FROM sradb.study
 WHERE study_accession = 'SRP000001';
-```
 
-## What you can query
-
-The snapshot exposes three layers. Most users want the top two.
-
-### `sradb.*` — SRAdb-compatible views
-
-A modernized reconstruction of the classic
-[SRAdb](https://bioconductor.org/packages/SRAdb/) schema: legacy column names
-kept where the data still exists, always-empty legacy columns dropped, and
-modern cross-references (BioProject / GEO / BioSample links, library-layout
-stats) added.
-
-| View | Grain |
-|------|-------|
-| `sradb.study` | one row per SRA study (SRP…) |
-| `sradb.sample` | one row per SRA sample (SRS…) |
-| `sradb.experiment` | one row per SRA experiment (SRX…) |
-| `sradb.run` | one row per SRA run (SRR/ERR/DRR…) |
-| `sradb.sra` | the denormalized run×experiment×sample×study join |
-| `sradb.run_with_study` | run-level rows enriched with study context |
-| `sradb.rnaseq_runs`, `sradb.wgs_runs` | filtered by `library_strategy` |
-| `sradb.human_runs`, `sradb.mouse_runs` | filtered by `taxon_id` |
-
-```sql
--- RNA-seq runs for a given BioProject
-SELECT run_accession, library_strategy, platform, instrument_model
+-- RNA-seq runs for one BioProject
+SELECT run_accession, platform, instrument_model, total_bases
 FROM sradb.run_with_study
-WHERE BioProject = 'PRJNA63463' AND library_strategy = 'RNA-Seq';
+WHERE bioproject = 'PRJNA1147303' AND library_strategy = 'RNA-Seq';
 ```
 
-### `geometadb.*` — GEOmetadb-compatible views
+## GEOmetadb-compatible tables (`geometadb`)
 
-A modernized reconstruction of
-[GEOmetadb](https://bioconductor.org/packages/GEOmetadb/): series (`gse`),
-samples (`gsm`), platforms (`gpl`), the `gse_gsm`/`gse_gpl` join tables, and
-`geo_supplemental_files`.
+A modernized [GEOmetadb](https://bioconductor.org/packages/GEOmetadb/) schema:
+series (`gse`), samples (`gsm`), platforms (`gpl`), the `gse_gsm` and `gse_gpl`
+link tables, and `geo_supplemental_files`.
 
 ```sql
--- GEO series that have NCBI-computed RNA-seq counts
+-- Series with NCBI-computed RNA-seq counts
 SELECT gse, title
 FROM geometadb.gse
 WHERE has_geo_computed_rnaseq
@@ -107,54 +116,36 @@ LIMIT 10;
 SELECT gsm FROM geometadb.gse_gsm WHERE gse = 'GSE118849';
 ```
 
-### Base tables — the raw Parquet
+## Source tables
 
-Underneath the views are the source-shaped tables, one Parquet file each:
-`sra_studies`, `sra_samples`, `sra_experiments`, `sra_runs`, `sra_accessions`,
-`geo_series`, `geo_samples`, `geo_platforms`, `geo_series_with_rnaseq_counts`,
-`biosamples`, `bioprojects`, `pubmed_articles`. Query any of them directly,
-without attaching the database:
+The source tables (`sra_runs`, `geo_samples`, `biosamples`, …) keep the
+upstream record shape, including nested lists of attributes and identifiers.
+In `omicidx.duckdb` they're views in the default schema, so after `USE omicidx`
+you can write `FROM sra_studies`. Older dated databases contain only the
+`sradb` and `geometadb` views; use `read_parquet` for source tables there.
 
 ```sql
-INSTALL httpfs; LOAD httpfs;
-SELECT count(*)
-FROM read_parquet('https://data.omicidx.cancerdatasci.org/latest/biosamples.parquet');
+-- Unnest SRA study attributes
+SELECT accession, a.tag, a.value
+FROM 'https://omicidx.cancerdatasci.org/data/latest/sra_studies.parquet',
+     unnest(attributes) AS t(a)
+LIMIT 10;
 ```
 
-If you'd rather rebuild the `sradb`/`geometadb` views yourself over the Parquet
-(for example, to run against a pinned `v{date}/` snapshot), `views.sql` is the
-portable definition — download it and `.read` it into any DuckDB session.
+## Work offline
 
-## Reproducibility
-
-Every publish writes a `manifest.json` recording exactly what the snapshot
-contains:
+To query heavily, download the files you need and point DuckDB at the local
+copies:
 
 ```bash
-curl -s https://data.omicidx.cancerdatasci.org/latest/manifest.json
+curl -O https://omicidx.cancerdatasci.org/data/latest/sradb/study.parquet
+duckdb -c "SELECT count(*) FROM 'study.parquet'"
 ```
 
-```json
-{
-  "publish_date": "2026-07-11",
-  "dated_path": "v2026-07-11/",
-  "transform_sha": "13b9a955…",
-  "lake_snapshot_id": 1780,
-  "raw_partition_counts": { "sra/study": 70, "geo": 259, … },
-  "tables": [ { "schema": "sradb", "table": "study", "row_count": 740807 }, … ]
-}
-```
-
-To cite a stable result, query the immutable dated URL rather than `latest/`:
-
-```sql
-ATTACH 'https://data.omicidx.cancerdatasci.org/v2026-07-11/omicidx.duckdb'
-  AS omicidx_20260711 (READ_ONLY);
-```
+`views.sql` points at absolute HTTPS URLs. To query local copies, edit the
+URLs, or write your own `CREATE VIEW` statements.
 
 ## Notes
 
-- Requires DuckDB ≥ 0.10 with the `httpfs` extension (bundled; `LOAD httpfs`
-  installs it on first use).
-- Reads are anonymous HTTPS range requests — behind a strict firewall, allow
-  `data.omicidx.cancerdatasci.org`.
+- Requests are anonymous HTTPS range requests. Behind a strict firewall, allow `omicidx.cancerdatasci.org`.
+- Any recent DuckDB release works. The examples on this page were tested with DuckDB 1.5.

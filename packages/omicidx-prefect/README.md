@@ -156,6 +156,18 @@ PUBLIC_PARQUET_ROOT=r2://data-omicidx                       # dedicated public b
 PUBLIC_PARQUET_HTTPS_BASE=https://data.omicidx.cancerdatasci.org  # base for views.sql URLs
 ```
 
+## Adding a data source
+
+1. Parser (if the upstream is XML/SOFT) in `packages/omicidx-parsers`.
+2. Extract: `flows/<name>.py`, implementing the `Source` protocol in
+   `source.py` and driven by `run_extraction`. It writes raw files under
+   `PUBLISH_ROOT` and semaphores under `_semaphores/<name>/`.
+3. Load: `flows/ducklake_<name>.py`, called from `flows/ducklake_load.py`,
+   plus an `ops.Source` entry in `flows/sources.py`.
+4. Publish: add the lake table to `EXPORTS` in `flows/parquet_export.py`.
+   Marts go in the SQLMesh project under `transform/`.
+5. Schedule: an `omicidx-<name>-extract.{service,timer}` pair in `systemd/`.
+
 ## Tests
 
 ```bash

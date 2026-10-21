@@ -9,16 +9,16 @@ export default defineConfig({
     starlight({
       title: "OmicIDX",
       description:
-        "Public, queryable index of NCBI SRA, GEO, BioSample, BioProject, PubMed, and EBI BioSamples metadata.",
+        "Public, queryable index of NCBI SRA, GEO, BioSample, BioProject, and PubMed metadata.",
       social: [
         {
           icon: "github",
           label: "GitHub",
-          href: "https://github.com/omicidx/omicidx",
+          href: "https://github.com/seandavi/omicidx",
         },
       ],
       editLink: {
-        baseUrl: "https://github.com/omicidx/omicidx/edit/main/docs/",
+        baseUrl: "https://github.com/seandavi/omicidx/edit/main/docs/",
       },
       lastUpdated: true,
       sidebar: [
@@ -33,17 +33,11 @@ export default defineConfig({
         {
           label: "Guides",
           items: [
-            { label: "Overview", slug: "guides" },
-            { label: "DuckDB snapshot", slug: "guides/duckdb-snapshot" },
-          ],
-        },
-        {
-          label: "Contributing",
-          items: [
-            { label: "Architecture", slug: "contributing/architecture" },
+            { label: "Get the data", slug: "guides" },
+            { label: "Query with DuckDB", slug: "guides/duckdb-snapshot" },
             {
-              label: "Automation cadence",
-              slug: "contributing/automation-cadence",
+              label: "Versions and citation",
+              slug: "guides/versions-and-citation",
             },
           ],
         },

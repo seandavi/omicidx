@@ -1,43 +1,40 @@
 ---
 title: OmicIDX
-description: Public, queryable index of NCBI SRA, GEO, BioSample, BioProject, PubMed, and EBI BioSamples metadata.
+description: Public, queryable index of NCBI SRA, GEO, BioSample, BioProject, and PubMed metadata, published as Parquet over anonymous HTTPS.
 template: splash
 hero:
-  tagline: A unified, queryable index of biological metadata across NCBI, EBI, and PubMed — built for researchers.
+  tagline: SRA, GEO, BioSample, BioProject, and PubMed metadata as Parquet files you can query from DuckDB, Python, or R. Rebuilt nightly. No account, no key.
   actions:
-    - text: Query the data
+    - text: Get the data
       link: /guides/duckdb-snapshot/
       icon: right-arrow
     - text: View on GitHub
-      link: https://github.com/omicidx/omicidx
+      link: https://github.com/seandavi/omicidx
       icon: external
       variant: minimal
 ---
 
 import { Card, CardGrid } from "@astrojs/starlight/components";
 
-## What you can do here
+```sql
+-- DuckDB: no download, no credentials
+ATTACH 'https://omicidx.cancerdatasci.org/data/latest/omicidx.duckdb' AS omicidx (READ_ONLY);
+SELECT run_accession, study_title FROM omicidx.sradb.rnaseq_runs WHERE taxon_id = 9606 LIMIT 10;
+```
 
 <CardGrid stagger>
-  <Card title="Query the data" icon="rocket">
-    Read the public Parquet and DuckDB snapshot over anonymous HTTPS. No
-    account, no key. See [the DuckDB snapshot guide](/guides/duckdb-snapshot/).
+  <Card title="Get the data" icon="rocket">
+    Everything lives under `https://omicidx.cancerdatasci.org/data/`. Query it
+    in place with [DuckDB](/guides/duckdb-snapshot/), or use the
+    [Python and R recipes](/guides/).
   </Card>
-  <Card title="Understand the data" icon="document">
-    [Overview](/overview/what-is-omicidx/) of what OmicIDX indexes and where it
-    pulls from.
+  <Card title="Cite a release" icon="document">
+    Monthly releases on HuggingFace carry a git tag and a DOI. See
+    [Versions and citation](/guides/versions-and-citation/).
   </Card>
-  <Card title="See the architecture" icon="setting">
-    How [raw NCBI/EBI feeds become a queryable
-    index](/overview/architecture/) — Dagster → DuckDB → PostgreSQL → REST.
-  </Card>
-  <Card title="Contribute" icon="open-book">
-    The [contributor guide](/contributing/architecture/) covers the ETL
-    internals and the [automation cadence](/contributing/automation-cadence/)
-    pattern that drives the daily refresh.
+  <Card title="What's inside" icon="open-book">
+    [What OmicIDX is](/overview/what-is-omicidx/), the [sources it
+    indexes](/overview/data-sources/), and [how it's
+    built](/overview/architecture/).
   </Card>
 </CardGrid>
-
-## Status
-
-These docs are early — the framework is in place, content is being written. Sections marked 🚧 are stubs. Track progress in the [GitHub issues](https://github.com/omicidx/omicidx/issues).
