@@ -170,7 +170,7 @@ def run_parquet_export(lake_schema: str | None) -> None:
 @run.command("publish-bundle")
 @click.option("--date", default=None, help="Bundle date (default: today UTC).")
 def run_publish_bundle(date: str | None) -> None:
-    """Build the external frozen bundle. Run after parquet-export."""
+    """Build the external bundle (duckdb views + manifest). Run after parquet-export."""
     from omicidx.prefect.flows.publish_bundle import publish_bundle
 
     publish_bundle(date=date)

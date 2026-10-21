@@ -127,8 +127,9 @@ the recovery commands. In short:
 The downstream chain is `ducklake-load → transform → parquet-export →
 publish-bundle`. `transform` is the SQLMesh mart build (lake
 views); `parquet-export` is the reverse-ETL (lake tables + marts → public
-Parquet, ADR-0004); `publish-bundle` builds the thin marts-only
-`omicidx.duckdb` into the frozen bundle.
+Parquet, ADR-0004); `publish-bundle` builds the thin
+`omicidx.duckdb`/`views.sql` (views over every public Parquet file) and
+`manifest.json` into the bundle.
 
 **Extraction and the downstream chain are decoupled.** Nothing downstream waits
 on an extract: the chain loads whatever raw is on R2 when it starts. That is

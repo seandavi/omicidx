@@ -47,42 +47,35 @@ A daily publication bundle, `omicidx` tables only. Read path is anonymous plain
 HTTPS (no `--no-sign-request` R2, no client credentials, no signed URLs) via the
 Cloudflare Worker / custom domain.
 
-The external artifact is built on a **retaining, file-catalog DuckLake** from day
-one, but ships in two capability tiers:
+The external artifact is **plain Parquet + DuckDB views** (ADR-0004 β,
+re-affirmed 2026-10-21 in #201/#203), and ships in two capability tiers:
 
-- **v1 (current-state):** the bundle exposes the current snapshot only. Honest
-  promise: "the data as of today." This is all the pipeline can *attest* today
-  (see §2a on faithfulness), so it is all v1 promises.
-- **B′ (time-travel unlock):** the same file-catalog DuckLake retains N
-  snapshots and exposes `AS OF` queries. This is the differentiated artifact —
-  **no one else publishes queryable historical SRA/GEO/BioProject state** — and
-  it is gated behind the faithfulness machinery (§2a), not behind a v1 deadline.
+- **v1 (current-state):** each bundle is one snapshot. Honest promise: "the data
+  as of that day." This is all the pipeline can *attest* today (see §2a on
+  faithfulness), so it is all v1 promises.
+- **B′ (time-travel unlock):** retained, manifest-attested snapshots kept long
+  enough to pin and compare. This is the differentiated artifact — **no one else
+  publishes queryable historical SRA/GEO/BioProject state** — and it is gated
+  behind the faithfulness machinery (§2a), not behind a v1 deadline.
 
-Building the catalog as *retaining* from the start (rather than exporting a
-single snapshot) costs little now and avoids a format migration later: it leaves
-the killer-app door open cheaply. Retention (which snapshots persist, how long)
-is a policy dial, defaulted conservatively at v1 and opened at B′.
+A frozen file-catalog DuckLake (meant to carry `AS OF` at B′) was built at Stage B and removed
+in #203: no client ever `ATTACH`ed it, and its `data/` copy more than doubled
+each dated folder. Snapshots are whole dated folders instead. Retention (which
+snapshots persist, how long) is a policy dial.
 
 Each bundle contains:
 
-- Parquet copies of the omicidx lake tables. Under copy-on-write, snapshots share
-  unchanged data files, so retaining history costs *retained files + growing
-  catalog metadata*, not a full copy per day — the same economics that make
-  internal retention cheap (§1).
-- `omicidx.duckdb` — built from those Parquet files, including the marts (§3).
-- `views.sql` — co-published view definitions (ADR-0004).
-- A **read-only file-based DuckLake catalog** (SQLite or DuckDB file, **not**
-  Postgres) so anonymous, credential-free clients can `ATTACH` the frozen
-  snapshot — and, at B′, query it `AS OF` a past date — without touching the
-  internal Postgres catalog.
+- Flat Parquet copies of the omicidx lake tables and the marts (§3).
+- `omicidx.duckdb` — nothing but views over every Parquet file in the same
+  folder, by absolute HTTPS URL.
+- `views.sql` — the same view definitions as plain SQL (ADR-0004).
 - A **bundle manifest** (§2a) pinning the publish to its provenance. This is the
   enabling primitive for trustworthy time travel, not a nice-to-have.
 - Read path: **Cloudflare Worker / custom-domain over plain HTTPS** with range
   requests for remote DuckDB reads.
-- Retention: rolling `latest/` **plus** immutable dated `v{date}/` folders. At
-  v1, dated folders are a bounded window (yesterday stays readable). At B′, the
-  file catalog itself retains the snapshot lineage, making `v{date}/` the
-  physical backing for `AS OF`.
+- Retention: rolling `latest/` **plus** immutable dated `v{date}/` folders, each
+  with its own views pointing at its own Parquet. Dated folders are a bounded
+  window (`PUBLIC_BUNDLE_RETENTION_DAYS`, default 30); B′ opens the dial.
 
 ### (2a) Snapshot faithfulness — the gate on time travel
 
@@ -164,13 +157,13 @@ narrow its interface is).
   snapshot attribution. Narrow interface: `lake_connect`, `upsert(con, target,
   source_sql, key)`, `ops.run(...)`, `get/set_watermark`. omicidx *consumes*
   this. Where omicidx's needs should drive cdsci-lake's interface: (a) the
-  frozen file-catalog export for external publishing, (b) the transform-engine
+  external bundle publishing, (b) the transform-engine
   slot (SQLMesh) and lineage — both are shared-substrate concerns omicidx is
   first to hit.
 
 - **Frozen publisher (deep module).** Hides: which tables ship, snapshot copy,
-  `omicidx.duckdb` build, retaining file-catalog generation, manifest emission,
-  dated-folder retention, and the Worker path layout. Narrow interface:
+  `omicidx.duckdb`/`views.sql` build, manifest emission, dated-folder
+  retention, and the Worker path layout. Narrow interface:
   `publish(date) -> attested bundle at latest/ and v{date}/`.
 
 - **Public read surface / Worker (deep module).** Hides: R2 auth, HTTP range
@@ -184,7 +177,7 @@ narrow its interface is).
 Information-leakage watch: the extractor protocol must not leak format or
 partitioning upward (today it does — downstream loaders know each source's
 layout). The frozen publisher must not leak the internal Postgres catalog to
-external clients (the file catalog exists precisely to prevent this).
+external clients (the bundle carries only Parquet, views and a manifest).
 
 ---
 
@@ -230,7 +223,8 @@ Grounded in the Phase-0 inspection, not assumptions. Live path is
   and CORS on the range GETs. Verify end-to-end at B3 **before** building
   retention on top of it. If it fails, the artifact degrades gracefully to
   "current-state Parquet + duckdb" and the time-travel bet is off — but you learn
-  that at B3, not at B′.
+  that at B3, not at B′. *Outcome:* the attach worked, but nobody used it; #203
+  removed the catalog and kept "Parquet + duckdb".
 
 ### Endpoint (3) marts
 
@@ -280,26 +274,25 @@ earned unlock, gated behind faithfulness (§2a), not behind a deadline.
 
 - **B1.** Reshape `parquet-export`: `latest/` + immutable `v{date}/` dated
   folders + retention-window pruning.
-- **B2.** Generate the **retaining** file-based DuckLake catalog (built to carry
-  snapshots from day one, publishing current-state only at v1); co-publish
-  `views.sql`; redirect `duckdb-build` output into the published bundle.
+- **B2.** Publish `omicidx.duckdb` + `views.sql` (views over every public
+  Parquet file, per folder) into the bundle. *(Originally also a retaining
+  file-based DuckLake catalog; removed in #203.)*
 - **B3.** Commit `data-omicidx` Worker/custom-domain config; **verify anonymous,
-  credential-free HTTPS range reads + a DuckDB `ATTACH` of the file catalog
-  end-to-end.** This is the gate on the whole time-travel bet (§3 key risk) —
-  retire it here before B′ builds on it.
+  credential-free HTTPS range reads of the bundle end-to-end.**
 - **B4.** Emit the **bundle manifest** (§2a): raw partition set, transform SHA,
   internal snapshot id, publish timestamp, `v{date}/` path. Enables attested
   provenance for every publish from v1 onward.
 
 ### Stage B′ — time-travel unlock (endpoint 2 killer app; gated behind §2a)
 
-Gate: (i) B3 proves anonymous file-catalog attach works; (ii) the manifest (B4)
+Gate: (i) B3 proves anonymous reads of the bundle work; (ii) the manifest (B4)
 plus lineage (transform engine decision, §5) make each snapshot attestable.
 
-- **B′1.** Retain N snapshots in the file catalog rather than pruning to current;
-  set the retention policy dial.
-- **B′2.** Expose `AS OF` queries over the published catalog; verify a
-  credential-free historical query end-to-end through the Worker.
+- **B′1.** Retain snapshots as whole dated bundles (each self-contained: Parquet
+  + views + manifest) rather than pruning to a short window; set the retention
+  policy dial (#201 D3/D4: monthly releases kept long-term).
+- **B′2.** Verify a credential-free query of a retained snapshot end-to-end
+  through the Worker.
 - **B′3.** Ship the differentiated promise: queryable historical
   SRA/GEO/BioProject state, attested by manifest + lineage.
 
@@ -342,8 +335,8 @@ inherited by something downstream.
 | Decision | Inherited by |
 |---|---|
 | Narrow Source extraction protocol (`list_partitions` / `extract`) | Every future omicidx source (EBI BioSample already pending); sibling producers (cmgd, bugsigdb) modeling their own extractors |
-| External publish = retaining file-catalog DuckLake (Parquet + duckdb + views.sql + read-only **file-based** catalog + manifest), **not** a Postgres-catalog live lake; omicidx-only | The cdsci-lake external-publishing pattern for all producers |
-| Cloudflare Worker / custom-domain as the anonymous read surface (no `--no-sign-request`, no client creds); anonymous file-catalog `ATTACH` verified over HTTPS range | All public data serving on the shared substrate |
+| External publish = flat Parquet + `omicidx.duckdb`/`views.sql` (views over all of it) + manifest, **no** catalog of any kind (ADR-0004 β, #203); omicidx-only | The cdsci-lake external-publishing pattern for all producers |
+| Cloudflare Worker / custom-domain as the anonymous read surface (no `--no-sign-request`, no client creds); anonymous `omicidx.duckdb` reads verified over HTTPS range | All public data serving on the shared substrate |
 | Time travel = extended internal-lake snapshot retention; raw is the re-derivation backstop (not the primary query path) | The retention/maintenance convention in `DUCKLAKE.md` for all producers |
 | **External time travel = an earned capability gated on snapshot faithfulness (manifest + lineage), not a v1 feature nor a closed door** | Whether any producer may publish `AS OF` history — and the faithfulness bar they must clear to do so |
 | **Bundle manifest (raw set + transform SHA + snapshot id) as the attestation primitive** | The provenance contract for every published artifact; the thing that makes reproduce-from-raw and time travel trustworthy |

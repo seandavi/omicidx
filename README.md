@@ -31,19 +31,22 @@ sra_runs <- read_parquet("https://data.omicidx.cancerdatasci.org/latest/sra_runs
 
 ## SRAdb / GEOmetadb-compatible views (no download)
 
-For the pre-built `sradb.*` / `geometadb.*` views, attach the published **read-only DuckLake catalog** over plain HTTPS — anonymous, credential-free, nothing to download:
+For every table as a view — base tables and the pre-built `sradb.*` /
+`geometadb.*` marts — attach the published `omicidx.duckdb` over plain HTTPS.
+It is anonymous and credential-free, and it holds nothing but views over the
+public Parquet, so there's nothing big to download:
 
 ```sql
-INSTALL ducklake; LOAD ducklake; INSTALL httpfs; LOAD httpfs;
-ATTACH 'ducklake:https://data.omicidx.cancerdatasci.org/latest/catalog.ducklake'
+ATTACH 'https://data.omicidx.cancerdatasci.org/latest/omicidx.duckdb'
   AS omicidx (READ_ONLY);
+USE omicidx;
 
-SELECT * FROM omicidx.geo_platforms LIMIT 5;
+SELECT count(*) FROM sra_runs;
 ```
 
-Prefer a local file? The daily bundle also publishes a thin `omicidx.duckdb` (the
-`sradb.*`/`geometadb.*` marts as views over the public Parquet) and a
-`views.sql` you can `.read` against a fresh DuckDB. Example mart queries:
+The same view definitions are published as `views.sql`. Each dated
+`v{date}/` folder has its own `omicidx.duckdb` pointing at that day's Parquet.
+Example mart queries:
 
 ```sql
 -- SRAdb-style
@@ -76,14 +79,13 @@ Flat base tables, one Parquet file each, at `latest/<file>.parquet` (rolling) an
 
 The `sradb.*` and `geometadb.*` marts are published under
 `latest/sradb/*.parquet` and `latest/geometadb/*.parquet` and exposed as views by
-the DuckLake catalog / `omicidx.duckdb` above.
+`omicidx.duckdb` above.
 
 ## How it's built
 
 The daily pipeline runs on Prefect (`packages/omicidx-prefect/`): NCBI/EBI →
-internal DuckLake lake → SQLMesh transform (marts) → a frozen public bundle
-(flat Parquet + `catalog.ducklake` + `omicidx.duckdb` + `views.sql` +
-provenance manifest). See `CLAUDE.md` and `docs/specs/omicidx-deliverables.md`
+internal DuckLake lake → SQLMesh transform (marts) → a public bundle
+(flat Parquet + `omicidx.duckdb` + `views.sql` + provenance manifest). See `CLAUDE.md` and `docs/specs/omicidx-deliverables.md`
 for the architecture, and [ADR-0004](docs/adrs/0004-public-serving-parquet-plus-views-sql.md)
 for the public-serving contract.
 

@@ -35,9 +35,9 @@ def daily_pipeline() -> None:
     """Load the lake from raw, transform, export, publish.
 
     ``parquet_export`` returns the publish date it stamped v{date}/ with, and
-    ``publish_bundle`` is pinned to that same date, so the frozen bundle (file
-    catalog + omicidx.duckdb + views.sql + manifest) references the Parquet just
-    written rather than whatever "today" is by the time it runs.
+    ``publish_bundle`` is pinned to that same date, so the bundle (omicidx.duckdb
+    + views.sql + manifest) references the Parquet just written rather than
+    whatever "today" is by the time it runs.
     """
     # ponytail: the one non-extract that has to lead. `fetch_rna_seq_counts` is
     # a ~1min eutils call whose output `geo_rnaseq_counts_to_ducklake` reads

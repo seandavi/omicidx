@@ -161,13 +161,15 @@ path.
 > snapshot, not history. External time travel (`AS OF`) is a later, gated stage
 > (B′). Don't infer a downloaded artifact can query past state yet.
 
-## External frozen bundle (Stage B)
+## External bundle (Stage B)
 
 `publish-bundle` (`flows/publish_bundle.py`) writes the public daily artifact to
 the dedicated public bucket (`PUBLIC_PARQUET_ROOT`, e.g. `r2://data-omicidx`),
 served anonymously over HTTPS by the `worker/` Cloudflare Worker
 (`PUBLIC_PARQUET_HTTPS_BASE`). This is a **separate** bucket from the internal
-lake's `cdsci-lake` — the internal Postgres catalog is never exposed externally.
+lake's `cdsci-lake` — the internal Postgres catalog is never exposed externally,
+and no catalog of any kind ships (ADR-0004 β; the frozen file-catalog DuckLake
+was removed in #203).
 
 Layout (per publish, `date` = UTC day):
 
@@ -175,40 +177,33 @@ Layout (per publish, `date` = UTC day):
 <public root>/
   v{date}/                     # immutable dated snapshot
     *.parquet                  # flat per-table Parquet (parquet-export)
-    data/main/<table>/*.parquet# DuckLake-managed data files for the catalog
-    catalog.ducklake           # read-only FILE-based DuckLake catalog
-    omicidx.duckdb             # built from the flat Parquet (marts included)
-    views.sql                  # co-published view defs, concrete HTTPS URLs
+    {sradb,geometadb}/*.parquet# marts (parquet-export)
+    omicidx.duckdb             # views over every Parquet file in v{date}/
+    views.sql                  # the same views as SQL, concrete HTTPS URLs
     manifest.json              # provenance attestation (below)
-  latest/                      # rolling; small files + flat Parquet only
-    catalog.ducklake  omicidx.duckdb  views.sql  manifest.json  *.parquet
+  latest/                      # rolling; same files, views point at latest/
 ```
 
-`latest/` carries **no** `data/` dir: `latest/catalog.ducklake` stores its
-`data_path` as the absolute HTTPS URL of the newest `v{date}/data/`, so it
-references the dated data by URL. Dated folders older than
-`PUBLIC_BUNDLE_RETENTION_DAYS` (default 7; v1 bounded window) are pruned by
-`parquet-export`; today's is never pruned, so `latest/` always points at a live
-dated folder.
+Dated folders older than `PUBLIC_BUNDLE_RETENTION_DAYS` (default 30) are pruned
+by `parquet-export`; today's is never pruned.
 
 ### Anonymous read contract (the load-bearing assumption, verified)
 
-The file catalog is built with a **relative** `DATA_PATH 'data/'` (inlining
-disabled so real Parquet is written), then its stored `data_path` is rewritten
-to the absolute HTTPS URL `{https_base}/v{date}/data/`. A credential-free client
-resolves data files over HTTP range reads with no override:
+`omicidx.duckdb` holds nothing but views whose `read_parquet()` URLs are
+absolute HTTPS, so a credential-free client just opens it:
 
 ```sql
-INSTALL ducklake; LOAD ducklake; INSTALL httpfs; LOAD httpfs;
-ATTACH 'ducklake:https://<base>/latest/catalog.ducklake' AS omicidx (READ_ONLY);
-SELECT * FROM omicidx.geo_platforms LIMIT 5;
+ATTACH 'https://<base>/latest/omicidx.duckdb' AS omicidx (READ_ONLY);
+USE omicidx;
+SELECT count(*) FROM sra_runs;
 ```
 
-Sharp edges (learned): DuckLake resolves a **relative** `data_path` against the
-client CWD, not the catalog URL, so the absolute rewrite is required; a
-`DATA_PATH` override at ATTACH is rejected unless it matches the stored value;
-and R2 rejects buffered `.open("wb")` uploads with unequal multipart parts — use
-`fs.put_file`. Offline regression: `tests/test_bundle.py`.
+(The DuckDB CLI's `.read` takes local files only, so `views.sql` is downloaded
+first or pasted.)
+
+Sharp edge (learned): R2 rejects buffered `.open("wb")` uploads with unequal
+multipart parts — use `fs.put_file` (each upload is retried, #195). Offline
+regression: `tests/test_bundle.py`.
 
 ### Bundle manifest (provenance, spec §2a)
 
