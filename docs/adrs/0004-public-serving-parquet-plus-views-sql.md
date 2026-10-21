@@ -5,6 +5,19 @@
 - **Deciders:** Sean Davis
 - **Related:** [ADR-0002](./0002-schema-v1-at-publication.md), [ADR-0003](./0003-schema-versioning-policy.md)
 
+> **2026-10-21 — re-affirmed (#201, #203).** (β) is the public contract. Spec
+> Stage B later added a frozen file-catalog DuckLake (option α) to the daily
+> bundle alongside the Parquet; that is superseded and removed. Three months of
+> Worker analytics showed no real DuckLake `ATTACH` traffic, while the flat
+> Parquet served 99% of requests, and the catalog's `data/` copy more than
+> doubled each dated folder (108 GB on top of 73 GB). The bundle is now: flat
+> Parquet (base tables + `sradb/`/`geometadb/` marts), `omicidx.duckdb` and
+> `views.sql` with views over **all** of it, and `manifest.json`. Each
+> `v{date}/` bundle's views point at its own folder; `latest/`'s at `latest/`.
+> Dated folders are kept 30 days (`PUBLIC_BUNDLE_RETENTION_DAYS`). The layout
+> sketch below (`vN.N/`, quarterly) predates the daily `latest/` + `v{date}/`
+> layout and is kept as the original record.
+
 ## Context
 
 OmicIDX has two natural surfaces:

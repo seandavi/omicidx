@@ -21,14 +21,17 @@ Invariants that follow from the finalized decisions:
   not leaked to downstream loaders.
 - **Catalog topology:** one internal catalog — the shared cdsci-lake Postgres
   `lake` DB, `omicidx` schema, data at `r2://cdsci-lake/`. The external side is
-  a **published, retaining file-catalog DuckLake bundle** (Parquet + `omicidx.duckdb`
-  + `views.sql` + a read-only **file-based** catalog + a provenance manifest),
-  `omicidx` tables only — never a second live Postgres catalog.
-- **Frozen-lake read path:** anonymous HTTPS via the Cloudflare Worker /
+  a **published bundle of flat Parquet + `omicidx.duckdb`/`views.sql` (views
+  over every public Parquet file) + a provenance `manifest.json`** (ADR-0004 β,
+  re-affirmed in #203), `omicidx` tables only — never a second live catalog,
+  Postgres or file-based.
+- **Public read path:** anonymous HTTPS via the Cloudflare Worker /
   custom-domain (range requests). No `--no-sign-request` R2, no client
-  credentials. Rolling `latest/` + immutable dated `v{date}/`. Anonymous,
-  credential-free file-catalog `ATTACH` over HTTPS range is the load-bearing
-  assumption — verify it end-to-end early.
+  credentials. Rolling `latest/` + immutable dated `v{date}/` (kept
+  `PUBLIC_BUNDLE_RETENTION_DAYS`, default 30); each folder's views point at
+  that folder's Parquet. Opening `omicidx.duckdb` and querying it
+  credential-free over HTTPS range is the load-bearing assumption
+  (`tests/test_bundle.py`).
 - **Time travel:** the internal lake is the primary time machine (extended
   snapshot retention); raw Parquet is the re-derivation backstop, not the primary
   query path. **External** time-travel is an *earned unlock* (spec Stage B′) gated
@@ -147,7 +150,7 @@ hostage (which is what GEO did for a month — #174).
 | `ducklake-load` | `flows/ducklake*.py` | MERGE raw → `lake.omicidx.*` (hash-gated, copy-on-write; SRA high-water-mark incremental) |
 | `transform` | `flows/transform.py` + `transform/` (SQLMesh) | `plan(prod)` materializes `src`→`stg`→`geometadb.*`/`sradb.*` marts as views in the lake |
 | `parquet-export` | `flows/parquet_export.py` | Reverse-ETL: COPY lake tables **and marts** → public Parquet `r2://data-omicidx/latest/*.parquet` + `latest/{sradb,geometadb}/*.parquet` (ADR-0004) |
-| `duckdb-build` | `flows/sql.py` | **Thin**: generate `CREATE VIEW` per mart over the public mart Parquet (no re-derivation); marts-only |
+| `publish-bundle` | `flows/publish_bundle.py` + `flows/sql.py` | **Thin**: `omicidx.duckdb`/`views.sql` = one `CREATE VIEW` per public Parquet file (base tables + marts, no re-derivation) + `manifest.json`, to `v{date}/` and `latest/` |
 
 - Config: `config.py` (`Settings` + `get_ducklake_connection`, `get_public_parquet_path`, etc.). Key env: `PUBLISH_ROOT`, `DUCKLAKE_URI`, `DUCKLAKE_DATA_PATH`, `PUBLIC_PARQUET_ROOT`, `PUBLIC_PARQUET_HTTPS_BASE`.
 - Catalog topology + MERGE/maintenance conventions: `DUCKLAKE.md`. Public-serving contract: `docs/adrs/0004`.
@@ -163,7 +166,7 @@ NCBI/EBI → omicidx-parsers (XML → Pydantic) → omicidx-prefect raw-extract 
                                                          ↓
                                               transform (SQLMesh: src → stg → marts)
                                                          ↓
-                                   parquet-export → public Parquet + frozen bundle + thin marts-only omicidx.duckdb
+                                   parquet-export → public Parquet → publish-bundle (omicidx.duckdb views + views.sql + manifest)
 ```
 
 ### GitHub Actions

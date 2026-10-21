@@ -40,11 +40,11 @@ class Settings(BaseSettings):
     public_parquet_https_base: str | None = (
         None  # e.g. https://data.omicidx.cancerdatasci.org
     )
-    # v1 dated bundles are a bounded window (spec §2: "yesterday stays
-    # readable"). Immutable v{date}/ folders older than this are pruned by
-    # parquet-export. B′ later opens this dial (or drops pruning) for
-    # retained-snapshot time travel.
-    public_bundle_retention_days: int = 7
+    # Dated bundles are a bounded window: immutable v{date}/ folders older
+    # than this are pruned by parquet-export. 30 days so a day-level pin
+    # survives a month (#201 D3); B′ later opens this dial (or drops pruning)
+    # for retained-snapshot time travel.
+    public_bundle_retention_days: int = 30
 
     model_config = SettingsConfigDict(
         env_file=".env",
