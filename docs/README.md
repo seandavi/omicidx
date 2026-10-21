@@ -17,22 +17,21 @@ npm run preview    # serve the production build locally
 ```
 src/
 ├── components/                 # Reusable Astro components
-│   ├── ScalarReference.astro   # Embeds the live OpenAPI spec via Scalar
 │   └── Wip.astro               # 🚧 Construction-zone callout
 └── content/
     └── docs/
         ├── index.mdx           # Landing page
-        ├── overview/           # User-facing overview
-        ├── api/                # API guide + OpenAPI reference
-        ├── guides/             # Tutorials (mostly stubs until clients ship)
-        └── contributing/       # Contributor's view
+        ├── overview/           # What OmicIDX is, sources, architecture
+        └── guides/             # Getting the data, DuckDB, versions and citation
 ```
 
-The sidebar TOC is configured in `astro.config.mjs`.
+The sidebar TOC is configured in `astro.config.mjs`. The site is for people
+using the data; contributor docs live in the repo (`CLAUDE.md`,
+`systemd/README.md`, the package READMEs).
 
 ## Conventions
 
-- **Markdown vs MDX:** plain `.md` for prose pages; `.mdx` only when the page imports a component (e.g., `Wip` or `ScalarReference`).
+- **Markdown vs MDX:** plain `.md` for prose pages; `.mdx` only when the page imports a component (e.g., `Wip` or Starlight's `Card`).
 - **Construction zones:** mark partially-written sections with the `Wip` component so visitors know what's stable. Out-of-date docs that claim authority are worse than no docs.
 
 ## Hosting
