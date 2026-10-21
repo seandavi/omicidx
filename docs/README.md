@@ -36,21 +36,15 @@ using the data; contributor docs live in the repo (`CLAUDE.md`,
 
 ## Hosting
 
-Static container behind the existing Traefik proxy at `docs.omicidx.cancerdatasci.org`.
+Served as Workers static assets by the one Cloudflare Worker in `site/`, at
+https://omicidx.cancerdatasci.org (the same Worker serves the data bucket at
+`/data/`). Its `[build]` step runs the Astro build, so to publish content
+changes:
 
 ```bash
-# On the server, from the omicidx repo root:
-cd docs
-docker compose up -d --build
+cd site && npx wrangler deploy
 ```
 
-The `Dockerfile` is multi-stage: `node:22-alpine` builds the static site, `caddy:2-alpine` serves it with zstd/gzip compression. The `proxy` Docker network and Cloudflare cert resolver are shared with the other services on this host.
-
-To redeploy after content changes:
-
-```bash
-git pull
-docker compose up -d --build
-```
-
-CI-driven rebuilds on push to `main` are not yet wired (manual `docker compose up -d --build` is the v1 workflow). See [#75](https://github.com/omicidx/omicidx/issues/75) for follow-ups.
+`docs.omicidx.cancerdatasci.org` and the retired `api-omicidx.cancerdatasci.org`
+301 to the new host via a Traefik file-provider rule on onclappc02
+(`monode/infrastructure/compose/traefik/config/omicidx-redirects.yml`).
