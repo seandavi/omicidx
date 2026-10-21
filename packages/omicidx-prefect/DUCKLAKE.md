@@ -165,7 +165,7 @@ path.
 
 `publish-bundle` (`flows/publish_bundle.py`) writes the public daily artifact to
 the dedicated public bucket (`PUBLIC_PARQUET_ROOT`, e.g. `r2://data-omicidx`),
-served anonymously over HTTPS by the `worker/` Cloudflare Worker
+served anonymously over HTTPS by the repo-root `site/` Cloudflare Worker
 (`PUBLIC_PARQUET_HTTPS_BASE`). This is a **separate** bucket from the internal
 lake's `cdsci-lake` — the internal Postgres catalog is never exposed externally.
 

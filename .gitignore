@@ -25,3 +25,4 @@ node_modules/
 
 # agent worktrees created by the Claude Code harness
 .claude/worktrees/
+.wrangler/

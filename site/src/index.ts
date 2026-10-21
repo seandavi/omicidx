@@ -1,7 +1,9 @@
 import { logUsage } from "./analytics";
 import { listDirectory } from "./listing";
+import { route } from "./route";
 
 export interface Env {
+  ASSETS: Fetcher;
   DATA_BUCKET: R2Bucket;
   USAGE: AnalyticsEngineDataset;
 }
@@ -46,6 +48,10 @@ export default {
     env: Env,
     ctx: ExecutionContext,
   ): Promise<Response> {
+    const target = route(new URL(request.url));
+    if (target.kind === "docs") return env.ASSETS.fetch(request);
+    const { key, base } = target;
+
     if (request.method === "OPTIONS") {
       return new Response(null, { status: 204, headers: CORS_HEADERS });
     }
@@ -54,14 +60,16 @@ export default {
       return new Response("Method not allowed", { status: 405 });
     }
 
-    const url = new URL(request.url);
-    const key = decodeURIComponent(url.pathname.slice(1)); // strip leading /
-
     // Directory listing
     if (key === "" || key.endsWith("/")) {
       const acceptsHtml =
         request.headers.get("accept")?.includes("text/html") ?? false;
-      const response = await listDirectory(env.DATA_BUCKET, key, acceptsHtml);
+      const response = await listDirectory(
+        env.DATA_BUCKET,
+        key,
+        acceptsHtml,
+        base,
+      );
       ctx.waitUntil(logUsage(env, request, key || "/", response.status, 0));
       return response;
     }
