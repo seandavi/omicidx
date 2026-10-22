@@ -43,7 +43,9 @@ def test_flow_modules_import(monkeypatch):
     monkeypatch.setenv("S3_ENDPOINT", "https://example.r2.cloudflarestorage.com")
     monkeypatch.setenv("S3_REGION", "auto")
     # transform.config builds the SQLMesh connections at import.
-    monkeypatch.setenv("DUCKLAKE_URI", "postgres:host=localhost dbname=lake user=u password=p")
+    monkeypatch.setenv(
+        "DUCKLAKE_URI", "postgres:host=localhost dbname=lake user=u password=p"
+    )
     monkeypatch.setenv("DUCKLAKE_DATA_PATH", "s3://test-bucket/lake/")
     from omicidx.prefect.config import settings
 
