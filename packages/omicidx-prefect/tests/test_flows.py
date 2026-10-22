@@ -27,6 +27,9 @@ FLOW_MODULES = [
     "omicidx.prefect.flows.publish_bundle",
     "omicidx.prefect.flows.transform",
     "omicidx.prefect.flows.main",
+    # SQLMesh config: building its Postgres state connection imports psycopg2.
+    # Dropping psycopg2-binary broke the 2026-10-22 transform (#217).
+    "omicidx.prefect.transform.config",
 ]
 
 
