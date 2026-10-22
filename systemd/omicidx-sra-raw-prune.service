@@ -1,0 +1,24 @@
+# Monthly SRA raw retention (#194): keep the last two complete Fulls per entity
+# and every partition dated after the older one; delete the rest with their
+# semaphores. Dry run by hand first: `omicidx-prefect run prune-sra-raw`.
+[Unit]
+Description=Prune raw SRA partitions older than the last two complete Fulls
+Documentation=https://github.com/seandavi/omicidx/issues/194
+After=network-online.target
+Wants=network-online.target
+OnFailure=ntfy-notify@%N.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/davsean/Documents/git/omicidx
+EnvironmentFile=/home/davsean/Documents/git/omicidx/.env
+# Holds the SRA extract's flock so it never deletes under a running extract
+# (which writes raw chunks before its semaphore). Waits up to 6h for it.
+# NOT `/usr/bin/env uv` — see the note in omicidx-sra-extract.service.
+ExecStart=/usr/bin/flock -w 21600 %t/omicidx-extract.lock %h/.local/bin/uv run omicidx-prefect run prune-sra-raw --apply
+# RuntimeMaxSec= has no effect on Type=oneshot. 6h lock wait + a run of minutes.
+TimeoutStartSec=25200
+Nice=10
+
+[Install]
+WantedBy=default.target

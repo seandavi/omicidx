@@ -74,6 +74,15 @@ def run_sra(force: bool) -> None:
     sra_extract(force=force)
 
 
+@run.command("prune-sra-raw")
+@click.option("--apply", is_flag=True, help="Delete (default: dry run).")
+def run_prune_sra_raw(apply: bool) -> None:
+    """Drop raw SRA older than the last two complete Fulls (#194)."""
+    from omicidx.prefect.flows.sra import prune_sra_raw
+
+    prune_sra_raw(apply=apply)
+
+
 @run.command("geo")
 @click.option("--start-month", default="2005-01")
 @click.option("--end-month", default=None)

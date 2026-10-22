@@ -112,6 +112,12 @@ keyed source `sra`, name `<lake_schema>:<entity>` (e.g. `omicidx:sra_study`)
 — not semaphore files. Full re-derivation / backfill = run with `force=True`, which
 drops the watermark filter (see the `reproduce-from-raw` entrypoint).
 
+SRA monthly Fulls are **never merged on an incremental run** (#194): a Full
+finishes extracting days after its `date`, past the watermark. They are the raw
+re-derivation backstop, read only with `force=True`. `omicidx-prefect run
+prune-sra-raw` (monthly timer) keeps the last two complete Fulls per entity and
+everything dated after the older one.
+
 ## Commit metadata (self-documenting snapshots)
 
 Every EL write runs inside an `ops.run(con, source=..., target=..., ...)`
