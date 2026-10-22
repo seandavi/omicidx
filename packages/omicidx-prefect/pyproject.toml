@@ -25,6 +25,9 @@ dependencies = [
     "click>=8.0",
     "cdsci-lake @ git+https://github.com/seandavi/cdsci-lake@v0.3.1",
     "sqlmesh>=0.236.0",
+    # SQLMesh's state store is Postgres (transform/config.py: PostgresConnectionConfig).
+    # Not the sqlmesh[postgres] extra: that pulls source-only psycopg2 (needs pg_config).
+    "psycopg2-binary>=2.9.12",
     "huggingface-hub>=2.2.0",
 ]
 
