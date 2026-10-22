@@ -3,6 +3,8 @@
 #   omicidx.cancerdatasci.org/data/*  -> `data-omicidx` R2 bucket
 #   data.omicidx.cancerdatasci.org/*  -> same bucket at `/` (published bundle
 #                                        catalogs hard-code this URL; never redirect)
+#   data-omicidx.cancerdatasci.org/*    -> 301 to /data/latest/{basename} or the
+#                                        docs home (retired legacy host, #211)
 # The bucket path is the anonymous, credential-free read surface for the frozen
 # bundle (spec §2 endpoint 2): range requests + CORS for DuckLake `ATTACH`.
 #
@@ -43,4 +45,8 @@ custom_domain = true
 
 [[routes]]
 pattern = "data.omicidx.cancerdatasci.org"
+custom_domain = true
+
+[[routes]]
+pattern = "data-omicidx.cancerdatasci.org"
 custom_domain = true

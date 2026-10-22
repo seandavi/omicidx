@@ -7,6 +7,7 @@ One Cloudflare Worker (named `data-omicidx`) serves the whole public site:
 | `https://omicidx.cancerdatasci.org/` | docs (the Astro build in `../docs/dist`, Workers static assets) |
 | `https://omicidx.cancerdatasci.org/data/*` | the `data-omicidx` R2 bucket, `/data` stripped from the key |
 | `https://data.omicidx.cancerdatasci.org/*` | the same bucket at `/` |
+| `https://data-omicidx.cancerdatasci.org/*` | retired legacy host (#211): 301 to `/data/latest/{basename}` if that file exists, else the docs home |
 
 The data host must keep serving bytes, never redirect: published bundle
 catalogs hard-code `https://data.omicidx.cancerdatasci.org/v{date}/data/` as
@@ -49,7 +50,7 @@ npx wrangler deploy
 ```
 
 `wrangler dev` and `wrangler deploy` rebuild `../docs/dist` first (the
-`[build]` command in `wrangler.toml`). Both custom domains are bound by the
+`[build]` command in `wrangler.toml`). All three custom domains are bound by the
 `[[routes]]` blocks; `custom_domain = true` creates their DNS records. To try
 the data host locally: `npx wrangler dev --local-upstream data.omicidx.cancerdatasci.org`.
 

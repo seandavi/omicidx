@@ -33,3 +33,17 @@ test("data host: bucket at /", () => {
     data("data/x"),
   );
 });
+
+test("legacy host (#211): basename for the /data/latest/ redirect", () => {
+  const legacy = (name: string) => ({ kind: "legacy", name });
+  assert.deepEqual(
+    at("https://data-omicidx.cancerdatasci.org/duckdb/omicidx.duckdb"),
+    legacy("omicidx.duckdb"),
+  );
+  assert.deepEqual(
+    at("https://data-omicidx.cancerdatasci.org/sra/parquet/sra_runs.parquet"),
+    legacy("sra_runs.parquet"),
+  );
+  assert.deepEqual(at("https://data-omicidx.cancerdatasci.org/"), legacy(""));
+  assert.deepEqual(at("https://data-omicidx.cancerdatasci.org/geo/"), legacy(""));
+});
