@@ -176,6 +176,21 @@ def run_publish_bundle(date: str | None) -> None:
     publish_bundle(date=date)
 
 
+@run.command("hf-release")
+@click.option("--date", default=None, help="v{date} folder (default: newest complete).")
+def run_hf_release(date: str | None) -> None:
+    """Publish a dated R2 folder as the monthly HuggingFace release (tag YYYY-MM)."""
+    import logging
+
+    from omicidx.prefect.flows.hf_release import hf_release
+
+    # A ~73 GB copy runs for a long time; log per-file progress.
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
+    )
+    click.echo(hf_release(date=date))
+
+
 @run.command("transform")
 @click.option("--environment", default="prod", help="SQLMesh environment.")
 def run_transform(environment: str) -> None:
