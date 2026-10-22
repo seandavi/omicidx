@@ -35,6 +35,7 @@ export default defineConfig({
           items: [
             { label: "Get the data", slug: "guides" },
             { label: "Query with DuckDB", slug: "guides/duckdb-snapshot" },
+            { label: "Use from R (omicidxr)", slug: "guides/r-omicidxr" },
             {
               label: "Versions and citation",
               slug: "guides/versions-and-citation",
