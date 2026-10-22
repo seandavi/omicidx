@@ -1,6 +1,7 @@
 import { logUsage } from "./analytics";
 import { listDirectory } from "./listing";
 import { route } from "./route";
+import { parseRange } from "./range";
 
 export interface Env {
   ASSETS: Fetcher;
@@ -16,22 +17,6 @@ function contentType(key: string): string {
   if (key.endsWith(".gz")) return "application/gzip";
   if (key.endsWith(".csv")) return "text/csv";
   return "application/octet-stream";
-}
-
-/** Parse an HTTP Range header into an R2Range. */
-function parseRange(
-  header: string,
-  totalSize: number,
-): R2Range | undefined {
-  const match = header.match(/^bytes=(\d+)-(\d*)$/);
-  if (!match) return undefined;
-  const start = parseInt(match[1], 10);
-  let end = match[2] ? parseInt(match[2], 10) : totalSize - 1;
-  // Reject unsatisfiable/invalid ranges (start past EOF or end < start) so we
-  // never hand R2 a negative/overflow length; caller falls back to full body.
-  if (start >= totalSize || end < start) return undefined;
-  if (end >= totalSize) end = totalSize - 1; // clamp to EOF
-  return { offset: start, length: end - start + 1 };
 }
 
 const CORS_HEADERS = {
