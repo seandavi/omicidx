@@ -8,6 +8,21 @@ export default defineConfig({
   integrations: [
     starlight({
       title: "OmicIDX",
+      // The one GA4 property shared by every site (G-KLLV1GCF4E).
+      head: [
+        {
+          tag: "script",
+          attrs: {
+            async: true,
+            src: "https://www.googletagmanager.com/gtag/js?id=G-KLLV1GCF4E",
+          },
+        },
+        {
+          tag: "script",
+          content:
+            "window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','G-KLLV1GCF4E');",
+        },
+      ],
       description:
         "Public, queryable index of NCBI SRA, GEO, BioSample, BioProject, and PubMed metadata.",
       social: [
