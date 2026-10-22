@@ -50,11 +50,24 @@ export default {
   ): Promise<Response> {
     const target = route(new URL(request.url));
     if (target.kind === "docs") return env.ASSETS.fetch(request);
-    const { key, base } = target;
 
     if (request.method === "OPTIONS") {
       return new Response(null, { status: 204, headers: CORS_HEADERS });
     }
+
+    if (target.kind === "legacy") {
+      // Redirects carry CORS headers so browser fetches may follow them.
+      const { name } = target;
+      const exists = name !== "" && (await env.DATA_BUCKET.head(`latest/${name}`));
+      const location = exists
+        ? `https://omicidx.cancerdatasci.org/data/latest/${encodeURIComponent(name)}`
+        : "https://omicidx.cancerdatasci.org/";
+      return new Response(null, {
+        status: 301,
+        headers: { location, ...CORS_HEADERS },
+      });
+    }
+    const { key, base } = target;
 
     if (request.method !== "GET" && request.method !== "HEAD") {
       return new Response("Method not allowed", { status: 405 });
