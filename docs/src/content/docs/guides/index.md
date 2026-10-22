@@ -8,6 +8,7 @@ Every OmicIDX table is a Parquet file under
 HTTPS can use it. You don't need an account or a key. There's no REST API.
 
 - **DuckDB:** [Query with DuckDB](/guides/duckdb-snapshot/) covers the published database, every table, and example queries.
+- **R:** the [omicidxr](/guides/r-omicidxr/) package connects in one line and replaces SRAdb and GEOmetadb.
 - **Pinning and citing:** [Versions and citation](/guides/versions-and-citation/) explains `latest/`, dated folders, and the monthly HuggingFace releases.
 
 The recipes below use `latest/`. Swap in `v{YYYY-MM-DD}/` to pin a date.
@@ -15,7 +16,8 @@ The recipes below use `latest/`. Swap in `v{YYYY-MM-DD}/` to pin a date.
 ## Python
 
 With [polars](https://pola.rs), `scan_parquet` reads lazily, so only the
-columns and row groups a query needs are fetched:
+columns and row groups a query needs are fetched. To try it without a
+project, run `uv run --with polars python`.
 
 ```python
 import polars as pl
@@ -32,7 +34,9 @@ studies = (
 ```
 
 With [DuckDB](https://duckdb.org/docs/api/python/overview), attach the
-published database and get a polars or pandas frame back:
+published database and get a polars frame back. `.pl()` needs
+[pyarrow](https://arrow.apache.org/docs/python/) installed, so run it with
+`uv run --with duckdb --with polars --with pyarrow python`:
 
 ```python
 import duckdb
@@ -44,8 +48,19 @@ gsms = con.sql("SELECT gsm FROM omicidx.geometadb.gse_gsm WHERE gse = 'GSE118849
 
 ## R
 
-The [duckdb](https://r.duckdb.org) package gives you the same database through
-DBI:
+The [omicidxr](/guides/r-omicidxr/) package connects for you, pins a
+version, and has SRAdb- and GEOmetadb-style helpers:
+
+```r
+library(omicidxr)
+
+con <- omicidx_connect()
+gsms <- geo_samples(con, "GSE118849")
+DBI::dbDisconnect(con)
+```
+
+Without the package, [duckdb](https://r.duckdb.org) gives you the same
+database through DBI:
 
 ```r
 library(DBI)
