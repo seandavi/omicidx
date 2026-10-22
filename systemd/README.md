@@ -19,6 +19,7 @@ server, no worker container, and no deployment manifest — `prefect.yaml`,
 | `omicidx-downstream` | `python -m omicidx.prefect.flows.main run` | daily 05:00 UTC (+≤15m jitter) |
 | `omicidx-ducklake-maintenance` | `omicidx-prefect run ducklake-maintenance` | Sunday 14:00 UTC (+≤30m jitter) |
 | `omicidx-hf-release` | `python -m omicidx.prefect.flows.hf_release run` | monthly, the 2nd 12:00 UTC (+≤15m jitter) |
+| `omicidx-sra-raw-prune` | `omicidx-prefect run prune-sra-raw --apply` | monthly, the 15th 14:00 UTC (+≤30m jitter) |
 
 `omicidx-biosample-extract` covers **both** NCBI full dumps (BioSample and
 BioProject) in one unit: same machinery, two URLs, both unpartitioned. It and
@@ -66,6 +67,17 @@ Do **not** raise GEO's concurrency to speed this up. `MAX_WORKERS = 1` is the
 fix, not a placeholder: a month already fans 30-wide internally, and the
 measured knee is 8-wide → 61 req/s versus 30-wide → 6.5 req/s with 10% timeouts.
 More outer concurrency makes GEO slower.
+
+## SRA raw retention
+
+`omicidx-sra-raw-prune` keeps, per SRA entity, the last two complete Fulls
+(those with a semaphore) and every partition dated on or after the older one,
+and deletes everything older together with its semaphores (#194). A Full
+without a semaphore is kept if it is dated after that cutoff, since it may be
+in progress; anything older is dead and goes. It holds `%t/omicidx-extract.lock`,
+the flock the SRA extract holds, so it never deletes under a running extract.
+It is **not** in the install loop below: install it only after the maintainer
+has reviewed a dry run (`omicidx-prefect run prune-sra-raw`, no `--apply`).
 
 ## Scratch space
 

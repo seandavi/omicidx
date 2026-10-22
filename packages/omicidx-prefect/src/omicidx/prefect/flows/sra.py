@@ -21,6 +21,7 @@ import multiprocessing
 import re
 import shutil
 import tempfile
+from dataclasses import dataclass
 from functools import lru_cache
 
 import click
@@ -432,6 +433,118 @@ def sra_extract(force: bool = False, max_workers: int = MAX_WORKERS) -> list[dic
     # (threads share it) but must not persist across runs in a reused process.
     _mirror_index.cache_clear()
     return run_extraction(SraSource(), force=force, max_workers=max_workers)
+
+
+# ---------------------------------------------------------------------------
+# Raw retention (#194)
+# ---------------------------------------------------------------------------
+
+#: Complete Fulls kept per entity: the current and previous month, so a
+#: monthly prune never races a long or overlapping Full extraction.
+KEEP_FULLS = 2
+
+
+@dataclass(frozen=True)
+class RawPartition:
+    """One `sra/raw/{entity}/date={date}/stage={stage}/` directory."""
+
+    date: str  # YYYY-MM-DD
+    stage: str  # "Full" | "Incremental"
+    done: bool  # has a semaphore, i.e. the extract finished
+    nbytes: int = 0
+
+
+def select_raw_prune(
+    partitions: list[RawPartition],
+) -> tuple[str, list[RawPartition]]:
+    """Return (cutoff, partitions to delete) for one entity's raw tree.
+
+    Keeps the newest ``KEEP_FULLS`` *complete* Fulls (done semaphore) and
+    everything dated on or after the older of them; deletes everything dated
+    before it — Fulls and incrementals, with or without a semaphore. A Full
+    without a semaphore is protected only if it is dated after the cutoff
+    (the only place an in-progress Full can be); one older than both kept Fulls
+    is dead — the extractor only lists NCBI's current batch, and the prune
+    holds the extract flock. Raises ValueError if there is no complete Full.
+    """
+    fulls = sorted(
+        {p.date for p in partitions if p.stage == "Full" and p.done}, reverse=True
+    )
+    if not fulls:
+        raise ValueError("no complete Full; refusing to prune")
+    cutoff = fulls[:KEEP_FULLS][-1]
+    return cutoff, [p for p in partitions if p.date < cutoff]
+
+
+def _list_raw_partitions(entity: str) -> list[RawPartition]:
+    root = get_upath("sra", "raw", entity)
+    done = set(SemaphoreStore(f"sra/{entity}").list_keys())
+    sizes: dict[tuple[str, str], int] = {}
+    for path, info in root.fs.find(root.path, detail=True).items():
+        m = re.match(
+            r"date=(\d{4}-\d{2}-\d{2})/stage=(Full|Incremental)/",
+            path.removeprefix(root.path + "/"),
+        )
+        if m:  # anything off-layout is never touched
+            sizes[m.groups()] = sizes.get(m.groups(), 0) + info["size"]
+    for key in done:  # zero-row partitions: a semaphore, no files
+        sizes.setdefault(tuple(key.split("_", 1)), 0)
+    return [
+        RawPartition(d, st, f"{d}_{st}" in done, n)
+        for (d, st), n in sorted(sizes.items())
+    ]
+
+
+def prune_sra_raw(apply: bool = False) -> int:
+    """Delete raw SRA partitions older than the retention window; return bytes.
+
+    Dry run unless ``apply``. A deleted partition's semaphore goes with it:
+    it is older than a kept complete Full, so it is out of NCBI's current
+    batch and the extractor never lists it again; leaving the semaphore would
+    make ``reproduce-from-raw`` glob a partition that no longer exists. The
+    semaphore is removed first, so a failed delete leaves an orphan that the
+    load ignores and the next prune removes.
+    """
+    verb = "deleting" if apply else "would delete"
+    click.echo(
+        f"sra raw retention: keep the last {KEEP_FULLS} complete Fulls per entity "
+        "and everything dated on/after the older one; delete the rest. A Full "
+        "without a semaphore is kept only if dated after that cutoff."
+    )
+    total = 0
+    for entity in ENTITIES:
+        partitions = _list_raw_partitions(entity)
+        try:
+            cutoff, doomed = select_raw_prune(partitions)
+        except ValueError as e:
+            click.echo(f"sra/{entity}: {e}")
+            continue
+        kept = [p for p in partitions if p.date >= cutoff]
+        nbytes = sum(p.nbytes for p in doomed)
+        total += nbytes
+        click.echo(
+            f"sra/{entity}: keep {len(kept)} partitions dated >= {cutoff} "
+            f"({sum(p.nbytes for p in kept) / 1e9:.2f} GB); {verb} {len(doomed)} "
+            f"({nbytes / 1e9:.2f} GB)"
+        )
+        for p in kept:
+            if p.stage == "Full" and not p.done:
+                click.echo(f"  keeping {p.date}_Full: no semaphore, after cutoff")
+        sem = SemaphoreStore(f"sra/{entity}")
+        for p in doomed:
+            click.echo(
+                f"  {verb} {p.date}_{p.stage} {p.nbytes / 1e6:,.1f} MB "
+                f"semaphore={'yes' if p.done else 'no'}"
+            )
+            if apply:
+                sem.clear(f"{p.date}_{p.stage}")
+                part = get_upath(
+                    "sra", "raw", entity, f"date={p.date}", f"stage={p.stage}"
+                )
+                if part.exists():  # a zero-row partition has no files
+                    part.fs.rm(part.path, recursive=True)
+    click.echo(f"sra raw: {verb} {total / 1e9:.2f} GB total")
+    return total
 
 
 @click.group()

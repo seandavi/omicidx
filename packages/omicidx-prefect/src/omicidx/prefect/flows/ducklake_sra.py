@@ -15,7 +15,14 @@ copy-on-write). A `force=True` run drops the filter and scans all partitions
 (full backfill / reconciliation).
 
 After a successful upsert the watermark is advanced to `max(date)` present in
-raw. `cdsci-lake` (the catalog bucket) is ducklake-controlled exclusively;
+raw.
+
+Monthly Full partitions are NEVER merged on an incremental run, by design
+(#194, option 1): a Full (`date=YYYY-MM-01`) finishes extracting days after
+its date, by which time the watermark has passed it. Fulls are the raw
+re-derivation backstop, read only by `force=True` (`reproduce-from-raw`);
+raw retention (`omicidx-prefect run prune-sra-raw`) keeps the last two complete
+Fulls and every partition dated after the older one. `cdsci-lake` (the catalog bucket) is ducklake-controlled exclusively;
 raw is read from PUBLISH_ROOT via `get_duckdb_path`.
 """
 
