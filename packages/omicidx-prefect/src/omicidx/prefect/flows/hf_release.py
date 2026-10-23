@@ -1,12 +1,12 @@
 """Monthly HuggingFace release of the public Parquet set (#204, #201 D4).
 
-``hf_release(date) -> tagged commit on hf.co/datasets/omicidx/omicidx``. The
+``hf_release(date) -> tagged commit on hf.co/datasets/<HF_REPO_ID>``. The
 release is a verbatim copy of one complete dated R2 folder ``v{date}/``: its
 flat Parquet (top level + ``sradb/`` + ``geometadb/``) and ``manifest.json``.
 Nothing is re-derived. Two files are generated for the HF copy:
 
 - ``views.sql`` — one view per Parquet file, pointing at
-  ``hf://datasets/omicidx/omicidx@<tag>/…`` so the release is self-contained.
+  ``hf://datasets/<HF_REPO_ID>@<tag>/…`` so the release is self-contained.
 - ``README.md`` — the dataset card, built from ``manifest.json`` + the files.
 
 A folder is complete once ``manifest.json`` exists (publish writes it last).
@@ -34,7 +34,6 @@ from omicidx.prefect.run import retry
 
 log = logging.getLogger(__name__)
 
-HF_REPO = "omicidx/omicidx"
 MART_SCHEMAS = sorted({schema for schema, _ in MART_EXPORTS})
 DOCS_URL = "https://omicidx.cancerdatasci.org"
 LATEST_URL = "https://data.omicidx.cancerdatasci.org/latest/"
@@ -88,7 +87,7 @@ def view_name(rel_path: str) -> str:
 
 
 def hf_url(tag: str, rel_path: str) -> str:
-    return f"hf://datasets/{HF_REPO}@{tag}/{rel_path}"
+    return f"hf://datasets/{settings().hf_repo_id}@{tag}/{rel_path}"
 
 
 def build_views_sql(tag: str, rel_paths: list[str]) -> str:
@@ -117,7 +116,8 @@ def build_card(tag: str, manifest: dict, tables: list[dict]) -> str:
     )
     total_gb = sum(t["bytes"] for t in tables) / 1e9
     date = manifest["publish_date"]
-    https = f"https://huggingface.co/datasets/{HF_REPO}/resolve/{tag}"
+    repo = settings().hf_repo_id
+    https = f"https://huggingface.co/datasets/{repo}/resolve/{tag}"
     return f"""---
 license: other
 license_name: upstream-ncbi-ebi-terms
@@ -167,7 +167,7 @@ The full provenance record is [`manifest.json`](manifest.json).
 DuckDB, one file:
 
 ```sql
-SELECT count(*) FROM 'hf://datasets/{HF_REPO}@{tag}/sra_studies.parquet';
+SELECT count(*) FROM 'hf://datasets/{repo}@{tag}/sra_studies.parquet';
 ```
 
 DuckDB, every table as a view (`views.sql` points at this release):
@@ -182,7 +182,7 @@ Python (polars):
 ```python
 import polars as pl
 
-df = pl.scan_parquet("hf://datasets/{HF_REPO}@{tag}/sra_studies.parquet").head(10).collect()
+df = pl.scan_parquet("hf://datasets/{repo}@{tag}/sra_studies.parquet").head(10).collect()
 ```
 
 R (arrow):
@@ -207,7 +207,7 @@ remain under those providers' terms of use.
   title  = {{OmicIDX, release {tag}}},
   author = {{Davis, Sean}},
   year   = {{{tag[:4]}}},
-  url    = {{https://huggingface.co/datasets/{HF_REPO}/tree/{tag}}}
+  url    = {{https://huggingface.co/datasets/{repo}/tree/{tag}}}
 }}
 ```
 """
@@ -217,11 +217,12 @@ def hf_release(date: str | None = None) -> dict:
     """Publish v{date}/ (default: newest complete) as HF release ``YYYY-MM``."""
     date = date or latest_complete_date()
     tag = date[:7]
+    repo = settings().hf_repo_id
     api = HfApi(token=settings().hf_token)
-    api.create_repo(HF_REPO, repo_type="dataset", private=False, exist_ok=True)
-    tags = {t.name for t in api.list_repo_refs(HF_REPO, repo_type="dataset").tags}
+    api.create_repo(repo, repo_type="dataset", private=False, exist_ok=True)
+    tags = {t.name for t in api.list_repo_refs(repo, repo_type="dataset").tags}
     if tag in tags:
-        log.info(f"Release {tag} already exists on {HF_REPO}; nothing to do")
+        log.info(f"Release {tag} already exists on {repo}; nothing to do")
         return {"date": date, "tag": tag, "skipped": True}
 
     workdir = Path(tempfile.gettempdir()) / "omicidx-hf-release" / f"v{date}"
@@ -248,23 +249,23 @@ def hf_release(date: str | None = None) -> dict:
     ops: list = [CommitOperationAdd(p, workdir / p) for p in local]
     ops += [
         CommitOperationDelete(p)
-        for p in api.list_repo_files(HF_REPO, repo_type="dataset")
+        for p in api.list_repo_files(repo, repo_type="dataset")
         if p not in local and p != ".gitattributes"
     ]
     commit = api.create_commit(
-        HF_REPO,
+        repo,
         ops,
         repo_type="dataset",
         commit_message=f"OmicIDX release {tag} (v{date})",
     )
     api.create_tag(
-        HF_REPO,
+        repo,
         repo_type="dataset",
         tag=tag,
         revision=commit.oid,
         tag_message=f"OmicIDX release {tag} (v{date})",
     )
-    log.info(f"Released {HF_REPO}@{tag} from v{date} ({commit.oid})")
+    log.info(f"Released {repo}@{tag} from v{date} ({commit.oid})")
     shutil.rmtree(workdir)
     return {"date": date, "tag": tag, "commit": commit.oid}
 

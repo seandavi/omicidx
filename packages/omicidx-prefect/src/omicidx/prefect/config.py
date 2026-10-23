@@ -47,6 +47,8 @@ class Settings(BaseSettings):
     public_bundle_retention_days: int = 30
     # Write token for the monthly HuggingFace release (flows/hf_release.py).
     hf_token: str | None = None
+    # HF dataset the monthly release goes to (#224).
+    hf_repo_id: str = "seandavis/omicidx"
 
     model_config = SettingsConfigDict(
         env_file=".env",
