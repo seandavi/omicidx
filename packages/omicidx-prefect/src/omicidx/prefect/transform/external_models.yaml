@@ -116,6 +116,18 @@
   columns:
     accession: TEXT
   gateway: lake
+- name: '"lake"."omicidx"."ncbi_taxonomy"'
+  columns:
+    tax_id: BIGINT
+    scientific_name: TEXT
+    rank: TEXT
+    parent_tax_id: BIGINT
+  gateway: lake
+- name: '"lake"."omicidx"."ncbi_taxonomy_merged"'
+  columns:
+    old_tax_id: BIGINT
+    new_tax_id: BIGINT
+  gateway: lake
 - name: '"lake"."omicidx"."pubmed_article"'
   columns:
     pmid: TEXT

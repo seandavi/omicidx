@@ -53,7 +53,8 @@ _UPSTREAM_DDL = [
         geo_accession VARCHAR, pubmed_ids INTEGER[])""",
     """CREATE TABLE stg.sra_samples (
         accession VARCHAR, alias VARCHAR, taxon_id INTEGER, organism VARCHAR,
-        description VARCHAR, attributes VARCHAR, biosample_accession VARCHAR)""",
+        description VARCHAR, attributes VARCHAR, biosample VARCHAR,
+        organism_as_submitted VARCHAR)""",
     """CREATE TABLE stg.sra_experiments (
         accession VARCHAR, alias VARCHAR, center_name VARCHAR, title VARCHAR,
         study_accession VARCHAR, design VARCHAR, sample_accession VARCHAR,
@@ -66,13 +67,15 @@ _UPSTREAM_DDL = [
     """CREATE TABLE stg.sra_runs (
         accession VARCHAR, alias VARCHAR, experiment_accession VARCHAR,
         total_spots BIGINT, total_bases BIGINT, attributes VARCHAR)""",
-    f"""CREATE TABLE src.geo_samples (
+    f"""CREATE TABLE stg.geo_samples (
         title VARCHAR, accession VARCHAR, platform_id VARCHAR, status VARCHAR,
         submission_date DATE, last_update_date DATE, type VARCHAR,
         channels {_CHANNEL}[], hyb_protocol VARCHAR, description VARCHAR,
         data_processing VARCHAR, contact {_CONTACT}, supplemental_files VARCHAR[],
         data_row_count INTEGER, channel_count INTEGER, biosample VARCHAR,
-        sra_experiment VARCHAR, library_source VARCHAR)""",
+        sra_experiment VARCHAR, library_source VARCHAR,
+        channel_organism_as_submitted VARCHAR[])""",
+    "CREATE TABLE src.geo_samples (accession VARCHAR, supplemental_files VARCHAR[])",
     f"""CREATE TABLE src.geo_series (
         accession VARCHAR, title VARCHAR, status VARCHAR, submission_date DATE,
         last_update_date DATE, summary VARCHAR, pubmed_id INTEGER[],
@@ -114,6 +117,7 @@ EXPECTED = {
         "description",
         "sample_attribute",
         "biosample_accession",
+        "scientific_name_as_submitted",
     },
     "sradb.experiment": {
         "experiment_ID",
@@ -186,6 +190,7 @@ EXPECTED = {
         "geo_accession",
         "study_description",
         "study_attribute",
+        "scientific_name_as_submitted",
     },
     "geometadb.gse": {
         "gse",
@@ -287,6 +292,8 @@ EXPECTED["geometadb.gsm"] = (
         "biosample",
         "sra_experiment",
         "library_source",
+        "organism_ch1_as_submitted",
+        "organism_ch2_as_submitted",
     }
     | {f"{c}_ch1" for c in _CH}
     | {f"{c}_ch2" for c in _CH}

@@ -56,6 +56,20 @@ EXPORTS: list[tuple[str, str]] = [
     ("pubmed_article", "pubmed_articles.parquet"),
 ]
 
+# Base files that carry organism names are COPY'd from their SQLMesh stg view
+# rather than the lake table (#226). Each of these stg views is its lake table
+# column for column, except the names are resolved by taxid against current NCBI
+# Taxonomy and the submitted names ride along as extra `*_as_submitted` columns.
+# GEO renames organisms without bumping last_update_date, so the lake's
+# as-extracted names go stale. lake table -> stg view; the stg views always read
+# the prod `omicidx` schema, whatever `lake_schema` says.
+TAXONOMY_RESOLVED_EXPORTS: dict[str, str] = {
+    "biosample": "biosamples",
+    "geo_series": "geo_series",
+    "geo_sample": "geo_samples",
+    "sra_sample": "sra_samples",
+}
+
 # SQLMesh-materialized marts: lake.{sradb,geometadb}.* → public parquet, one file
 # per mart under <schema>/. The thin public duckdb (flows/sql.py) is nothing but
 # views over exactly these files — no re-derivation. Names preserve the published
@@ -158,7 +172,11 @@ def parquet_export(date: str | None = None, lake_schema: str = LAKE_SCHEMA) -> s
     """
     date = date or publish_date()
     for lake_table, filename in EXPORTS:
-        export_table(lake_table, filename, date, lake_schema=lake_schema)
+        if lake_table in TAXONOMY_RESOLVED_EXPORTS:
+            stg_view = TAXONOMY_RESOLVED_EXPORTS[lake_table]
+            export_table(stg_view, filename, date, lake_schema="stg")
+        else:
+            export_table(lake_table, filename, date, lake_schema=lake_schema)
     for schema, table in MART_EXPORTS:
         export_table(table, f"{schema}/{table}.parquet", date, lake_schema=schema)
     prune_dated_folders(date)
