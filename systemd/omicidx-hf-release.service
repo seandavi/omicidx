@@ -1,7 +1,8 @@
 # Monthly HuggingFace release (#204): copy the newest complete v{date}/ folder
-# from the public R2 bucket to hf.co/datasets/omicidx/omicidx, tagged YYYY-MM.
+# from the public R2 bucket to hf.co/datasets/seandavis/omicidx (HF_REPO_ID),
+# tagged YYYY-MM.
 [Unit]
-Description=Publish the monthly omicidx release to HuggingFace (omicidx/omicidx)
+Description=Publish the monthly omicidx release to HuggingFace (seandavis/omicidx)
 Documentation=https://github.com/seandavi/omicidx/issues/204
 After=network-online.target
 Wants=network-online.target

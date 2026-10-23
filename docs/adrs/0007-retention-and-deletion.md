@@ -26,7 +26,7 @@ public side exists to serve current data and to cite past data.
 | Other raw sources | re-derive the lake | everything (no rule yet) |
 | Public `latest/` | current data | overwritten nightly |
 | Public `v{date}/` | day-level pins | **30 days** (`PUBLIC_BUNDLE_RETENTION_DAYS`) |
-| HuggingFace `omicidx/omicidx@YYYY-MM` | long-term, citable releases | **forever** (git tags; DOIs lock the repo) |
+| HuggingFace `seandavis/omicidx@YYYY-MM` | long-term, citable releases | **forever** (git tags; DOIs lock the repo) |
 
 **SRA raw rule** (`omicidx-prefect run prune-sra-raw`, monthly timer):
 - A Full is *complete* when it has a done semaphore.
