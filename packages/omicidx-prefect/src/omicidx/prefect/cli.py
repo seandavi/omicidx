@@ -117,6 +117,14 @@ def run_pubmed(force: bool) -> None:
     pubmed_extract(force=force)
 
 
+@run.command("ncbi-taxonomy")
+@click.option("--force", is_flag=True)
+def run_ncbi_taxonomy(force: bool) -> None:
+    from omicidx.prefect.flows.ncbi_taxonomy import ncbi_taxonomy_extract
+
+    ncbi_taxonomy_extract(force=force)
+
+
 @run.command("ebi-biosample")
 @click.option("--start-day", default="2021-01-01")
 @click.option("--end-day", default=None)

@@ -1,0 +1,32 @@
+# NCBI Taxonomy taxdump as a standalone scheduled EL process (#226), following
+# omicidx-ebi-biosample-extract.service. Convention: monode/infrastructure's
+# SCHEDULING.md.
+#
+# Lands taxdump.tar.gz whole on R2 under a per-day partition; ducklake-load
+# (omicidx-downstream) loads the newest one, and the transform resolves organism
+# names by taxid against it.
+#
+# No Conflicts= and no flock: one ~80 MB HTTPS download, seconds of work, so it
+# contends with nothing the heavy extracts fight over.
+[Unit]
+Description=Extract the NCBI Taxonomy taxdump to raw on R2
+Documentation=https://github.com/seandavi/omicidx/issues/226
+After=network-online.target
+Wants=network-online.target
+OnFailure=ntfy-notify@%N.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/davsean/Documents/git/omicidx
+EnvironmentFile=/home/davsean/Documents/git/omicidx/.env
+# NOT `/usr/bin/env uv` — systemd --user's minimal PATH excludes ~/.local/bin
+# (#153).
+ExecStart=%h/.local/bin/uv run python -m omicidx.prefect.flows.ncbi_taxonomy run
+# RuntimeMaxSec= silently has no effect on Type=oneshot — use TimeoutStartSec=.
+# A run is ~15 s; 30 min covers the driver's three 60 s-spaced retries on a slow
+# FTP night with room to spare.
+TimeoutStartSec=1800
+Nice=10
+
+[Install]
+WantedBy=default.target

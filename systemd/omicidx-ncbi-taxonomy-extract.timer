@@ -1,0 +1,15 @@
+[Unit]
+Description=Weekly NCBI Taxonomy taxdump extraction
+
+[Timer]
+# Weekly: renames trickle in, and a week's lag on a name is harmless (the taxid
+# is always right). Saturday 03:00 UTC lands it before that day's 05:00
+# omicidx-downstream load, so the new names publish the same morning.
+OnCalendar=Sat *-*-* 03:00:00 UTC
+RandomizedDelaySec=1800
+# A missed week catches up on next boot; the per-day semaphore makes a repeat
+# start that day a no-op.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

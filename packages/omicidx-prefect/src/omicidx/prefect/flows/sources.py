@@ -63,4 +63,12 @@ OMICIDX_SOURCES: tuple[ops.Source, ...] = (
         "ncbi-ftp",
         "us-public-domain",
     ),
+    ops.Source(
+        "ncbi_taxonomy",
+        "omicidx",
+        "NCBI Taxonomy taxdump (names/nodes/merged); resolves organism names by taxid",
+        "weekly",
+        "ncbi-ftp",
+        "us-public-domain",
+    ),
 )
