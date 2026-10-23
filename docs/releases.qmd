@@ -1,0 +1,153 @@
+---
+title: Releases
+description: Every OmicIDX version available now, latest, the dated nightly folders and the HuggingFace monthly releases, with each table's size and row count.
+toc: false
+---
+
+Every version available right now, read live from the data server and
+HuggingFace. Expand one to see its tables, with file sizes, row counts from
+its `manifest.json`, and download links.
+
+- **`latest/`** and the **dated folders** (`v{YYYY-MM-DD}/`, kept 30 days) are for querying in place: attach their `omicidx.duckdb` or `read_parquet` a file. `restore.sql` builds a local copy (`duckdb omicidx-local.duckdb < restore.sql`).
+- **Monthly releases** on HuggingFace are the long-term archive and the version to cite. Download one with `hf download`, or `omicidx_download()` in R, then query it locally. See [Versions and citation](guides/versions-and-citation.qmd).
+
+::: {#releases}
+Loading releases…
+:::
+
+```{=html}
+<script>
+(() => {
+  const DATA = "https://omicidx.cancerdatasci.org/data/";
+  const HF = "seandavis/omicidx";
+  const root = document.getElementById("releases");
+
+  const el = (tag, attrs = {}, ...children) => {
+    const e = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+    e.append(...children);
+    return e;
+  };
+  const link = (href, text) => el("a", { href }, text);
+  const getJson = async (url) => {
+    const r = await fetch(url, { headers: { accept: "application/json" } });
+    if (!r.ok) throw new Error(`${r.status} for ${url}`);
+    return r.json();
+  };
+  const bytes = (n) => {
+    const u = ["B", "KB", "MB", "GB", "TB"];
+    const i = n > 0 ? Math.min(Math.floor(Math.log(n) / Math.log(1024)), 4) : 0;
+    return `${(n / 1024 ** i).toFixed(i ? 1 : 0)} ${u[i]}`;
+  };
+  // A table's file, relative to its release: sradb/study.parquet, sra_runs.parquet.
+  const fileOf = (t) => (t.schema === "main" ? "" : `${t.schema}/`) + `${t.table}.parquet`;
+
+  function copyable(text) {
+    const btn = el("button", { type: "button", class: "btn btn-sm btn-outline-secondary ms-2" }, "Copy");
+    btn.addEventListener("click", async () => {
+      await navigator.clipboard.writeText(text);
+      btn.textContent = "Copied";
+      setTimeout(() => (btn.textContent = "Copy"), 1500);
+    });
+    return el("div", { class: "d-flex align-items-start my-2" },
+      el("pre", { class: "mb-0 flex-grow-1" }, el("code", {}, text)), btn);
+  }
+
+  // files: [{path, size}] relative to the release; manifest: its manifest.json.
+  function details(manifest, files, fileUrl) {
+    const sizes = Object.fromEntries(files.map((f) => [f.path, f.size]));
+    const rows = manifest.tables.map((t) => {
+      const f = fileOf(t);
+      return el("tr", {},
+        el("td", {}, el("code", {}, t.schema === "main" ? t.table : `${t.schema}.${t.table}`)),
+        el("td", { class: "text-end" }, sizes[f] === undefined ? "–" : bytes(sizes[f])),
+        el("td", { class: "text-end" }, t.row_count.toLocaleString("en-US")),
+        el("td", {}, link(fileUrl(f), f)));
+    });
+    const total = manifest.tables.reduce((s, t) => s + (sizes[fileOf(t)] ?? 0), 0);
+    return [
+      el("p", { class: "small" },
+        `Published ${manifest.published_at ?? manifest.publish_date} · transform `,
+        link(`https://github.com/seandavi/omicidx/commit/${manifest.transform_sha}`,
+          manifest.transform_sha.slice(0, 7)),
+        ` · lake snapshot ${manifest.lake_snapshot_id} · ${manifest.tables.length} tables, ${bytes(total)}`),
+      el("div", { class: "table-responsive" },
+        el("table", { class: "table table-sm" },
+          el("thead", {}, el("tr", {},
+            el("th", { scope: "col" }, "Table"), el("th", { scope: "col", class: "text-end" }, "Size"),
+            el("th", { scope: "col", class: "text-end" }, "Rows"), el("th", { scope: "col" }, "File"))),
+          el("tbody", {}, ...rows))),
+    ];
+  }
+
+  async function r2Folder(dir) {
+    const listings = await Promise.all(
+      [dir, `${dir}sradb/`, `${dir}geometadb/`].map((p) => getJson(DATA + p).catch(() => ({ files: [] }))));
+    const files = listings.flatMap((l) => l.files)
+      .map((f) => ({ path: f.key.slice(dir.length), size: f.size }));
+    const manifest = await getJson(`${DATA}${dir}manifest.json`);
+    const extras = ["omicidx.duckdb", "views.sql", "restore.sql", "manifest.json"]
+      .filter((n) => files.some((f) => f.path === n));
+    return [
+      el("p", { class: "small" }, "Files: ",
+        ...extras.flatMap((n, i) => [i ? " · " : "", link(DATA + dir + n, n)]),
+        " · ", link(DATA + dir, "folder listing")),
+      copyable(`ATTACH '${DATA}${dir}omicidx.duckdb' AS omicidx (READ_ONLY);`),
+      ...(extras.includes("restore.sql")
+        ? [copyable(`curl -sO ${DATA}${dir}restore.sql && duckdb omicidx-local.duckdb < restore.sql`)]
+        : []),
+      ...details(manifest, files, (f) => DATA + dir + f),
+    ];
+  }
+
+  async function hfRelease(tag) {
+    const tree = await getJson(`https://huggingface.co/api/datasets/${HF}/tree/${tag}?recursive=true`);
+    const files = tree.filter((f) => f.type === "file").map((f) => ({ path: f.path, size: f.size }));
+    const base = `https://huggingface.co/datasets/${HF}/resolve/${tag}/`;
+    const manifest = await getJson(base + "manifest.json");
+    return [
+      el("p", { class: "small" },
+        link(`https://huggingface.co/datasets/${HF}/tree/${tag}`, "Browse on HuggingFace"),
+        " · ", link(base + "manifest.json", "manifest.json")),
+      copyable(`hf download ${HF} --repo-type dataset --revision ${tag} --local-dir omicidx-${tag}`),
+      copyable(`omicidxr::omicidx_download("${tag}", "omicidx-${tag}.duckdb")`),
+      ...details(manifest, files, (f) => base + f),
+    ];
+  }
+
+  // A <details> whose body loads the first time it's opened.
+  function release(label, note, load) {
+    const body = el("div", { class: "ps-3" }, "Loading…");
+    const d = el("details", { class: "mb-2" },
+      el("summary", {}, el("strong", {}, label), note ? ` ${note}` : ""), body);
+    let loaded = false;
+    d.addEventListener("toggle", async () => {
+      if (!d.open || loaded) return;
+      loaded = true;
+      try { body.replaceChildren(...(await load())); }
+      catch (e) { body.replaceChildren(el("p", { class: "text-danger" }, `Couldn't load: ${e.message}`)); }
+    });
+    return d;
+  }
+
+  async function main() {
+    const [listing, refs] = await Promise.all([
+      getJson(DATA),
+      getJson(`https://huggingface.co/api/datasets/${HF}/refs`).catch(() => ({ tags: [] })),
+    ]);
+    const dated = listing.directories.filter((d) => /^v\d{4}-\d{2}-\d{2}\/$/.test(d)).sort().reverse();
+    const monthly = refs.tags.map((t) => t.name).filter((n) => /^\d{4}-\d{2}$/.test(n)).sort().reverse();
+    root.replaceChildren(
+      el("h2", { id: "nightly" }, "Nightly (query in place)"),
+      release("latest/", "rebuilt every night", () => r2Folder("latest/")),
+      ...dated.map((d) => release(d, "", () => r2Folder(d))),
+      el("h2", { id: "monthly" }, "Monthly (download and cite)"),
+      ...(monthly.length
+        ? monthly.map((t) => release(t, `· ${HF}@${t}`, () => hfRelease(t)))
+        : [el("p", {}, "No monthly releases found.")]),
+    );
+  }
+  main().catch((e) => root.replaceChildren(el("p", { class: "text-danger" }, `Couldn't load the release list: ${e.message}`)));
+})();
+</script>
+```

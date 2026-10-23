@@ -1,5 +1,5 @@
 # Cloudflare Worker: the whole public omicidx site (#198).
-#   omicidx.cancerdatasci.org/        -> docs (Astro build, Workers static assets)
+#   omicidx.cancerdatasci.org/        -> docs (Quarto `_site/`, Workers static assets)
 #   omicidx.cancerdatasci.org/data/*  -> `data-omicidx` R2 bucket
 #   data.omicidx.cancerdatasci.org/*  -> same bucket at `/` (published bundle
 #                                        catalogs hard-code this URL; never redirect)
@@ -8,8 +8,9 @@
 # The bucket path is the anonymous, credential-free read surface for the frozen
 # bundle (spec §2 endpoint 2): range requests + CORS for DuckLake `ATTACH`.
 #
-# Deploy (needs `wrangler login`); the build step rebuilds docs/dist first:
-#   cd site && npm ci && npx wrangler deploy
+# Deploy (needs `wrangler login`). There's no build step: render the docs
+# first (frozen, so no data or R/Python needed), then deploy:
+#   quarto render docs && cd site && npm ci && npx wrangler deploy
 #
 # custom_domain auto-creates the DNS records on deploy (cancerdatasci.org is
 # Cloudflare-managed). The worker keeps its original name so the data host
@@ -19,11 +20,8 @@ name = "data-omicidx"
 main = "src/index.ts"
 compatibility_date = "2025-03-14"
 
-[build]
-command = "npm --prefix ../docs ci && npm --prefix ../docs run build"
-
 [assets]
-directory = "../docs/dist"
+directory = "../docs/_site"
 binding = "ASSETS"
 not_found_handling = "404-page"
 # The worker routes first: on the data host every path is a bucket key, even

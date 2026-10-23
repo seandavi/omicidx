@@ -48,3 +48,31 @@ jobs:
 
       - name: Run tests
         run: uv run pytest packages/ -x -q
+
+  # The docs render from _freeze/, so this job needs no R, Python or data.
+  # docs-examples.yaml re-runs every example against live data weekly.
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: quarto-dev/quarto-actions/setup@v2
+
+      - name: Render (frozen)
+        run: quarto render docs
+
+  site:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: site
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - run: npm ci
+      - run: npm test
+      - run: npm run typecheck

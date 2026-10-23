@@ -20,7 +20,7 @@ nightly Parquet export ──▶ omicidx.cancerdatasci.org/data/
                               latest/, v{date}/
                                 │ monthly
                                 ▼
-                         HuggingFace omicidx/omicidx (tagged, DOI)
+                         HuggingFace seandavis/omicidx (tagged, DOI)
 ```
 
 ## Stages
@@ -28,7 +28,7 @@ nightly Parquet export ──▶ omicidx.cancerdatasci.org/data/
 1. **Extract.** One job per source (SRA, GEO, BioSample/BioProject, PubMed, and EBI BioSamples) downloads new upstream data and writes raw files to R2. A small marker file records each finished partition, so a failed job resumes where it stopped. Parsing uses [`omicidx-parsers`](https://github.com/seandavi/omicidx/tree/main/packages/omicidx-parsers).
 2. **Load.** Every night, the raw files are merged into an internal [DuckLake](https://ducklake.select/) (Postgres catalog, Parquet data on R2). The lake keeps snapshots, so earlier states can be reproduced.
 3. **Transform.** [SQLMesh](https://sqlmesh.com/) builds the `sradb` and `geometadb` marts from the lake tables.
-4. **Publish.** The base tables and marts are exported to public Parquet: a new `v{date}/` folder, a refreshed `latest/`, an `omicidx.duckdb` of views, `views.sql`, and `manifest.json`. A monthly job copies one release to HuggingFace.
+4. **Publish.** The base tables and marts are exported to public Parquet: a new `v{date}/` folder, a refreshed `latest/`, an `omicidx.duckdb` of views, `views.sql`, `restore.sql` (a local-copy script), and `manifest.json`. A monthly job copies one release to HuggingFace.
 
 Extraction and publishing are decoupled. The nightly build uses whatever raw
 data is already on R2, so a slow or failing source only delays its own tables.
@@ -38,7 +38,7 @@ data is already on R2, so a slow or failing source only delays its own tables.
 Each release's `manifest.json` records the publish date, the git commit of the
 transform code (`transform_sha`), the internal lake snapshot it was exported
 from (`lake_snapshot_id`), and per-table row counts. See [Versions and
-citation](/guides/versions-and-citation/).
+citation](../guides/versions-and-citation.qmd).
 
 ## Source code
 

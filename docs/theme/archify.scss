@@ -1,0 +1,187 @@
+/*-- scss:defaults --*/
+// Shared structure; colours come from archify-light.scss / archify-dark.scss.
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600;700&display=swap");
+$font-family-sans-serif: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+$font-family-monospace: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+$headings-font-family: $font-family-monospace;
+$headings-font-weight: 700;
+$font-size-root: 16px;
+$line-height-base: 1.65;
+$border-radius: 0.75rem;
+$border-radius-sm: 0.5rem;
+$border-radius-lg: 1rem;
+
+/*-- scss:rules --*/
+// The archify canvas: faint dot grid behind everything.
+body {
+  background-color: var(--ax-bg);
+  background-image: radial-gradient(var(--ax-grid-dot) 1px, transparent 1px);
+  background-size: 22px 22px;
+  background-attachment: fixed;
+}
+
+// Content sits on a panel, like the diagram stage.
+main#quarto-document-content {
+  background: var(--ax-panel);
+  border: 1px solid var(--ax-border);
+  border-radius: 1rem;
+  box-shadow: var(--ax-shadow);
+  padding: 2rem 2.5rem 2.5rem;
+  margin-top: 1.25rem;
+  margin-bottom: 2rem;
+}
+// On phones the panel frame costs too much width: go full-bleed.
+@media (max-width: 767.98px) {
+  main#quarto-document-content { padding: 1rem 0.25rem; border: 0; border-radius: 0; box-shadow: none; background: transparent; margin-top: 0.5rem; }
+}
+
+// Chrome in mono, like archify's toolbar and labels.
+// Sidebar and TOC stay in the sans font: mono wraps long page titles badly.
+.navbar, .quarto-title-meta, .breadcrumb, .nav-footer, #toc-title {
+  font-family: $font-family-monospace;
+}
+.navbar {
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--ax-border);
+  box-shadow: none;
+}
+.navbar-brand .navbar-title { font-weight: 700; letter-spacing: -0.01em; }
+
+// Title: archify's coloured dot before the heading.
+.quarto-title h1.title {
+  font-size: 1.9rem;
+  letter-spacing: -0.02em;
+  &::before {
+    content: "";
+    display: inline-block;
+    width: 0.55em; height: 0.55em;
+    margin-right: 0.45em;
+    border-radius: 999px;
+    background: var(--ax-cyan);
+    vertical-align: 0.12em;
+  }
+}
+h2 { font-size: 1.35rem; margin-top: 2.2rem; letter-spacing: -0.01em; border-bottom: 0; }
+h3 { font-size: 1.1rem; }
+h4, h5, h6 { font-size: 0.95rem; }
+.quarto-title-meta-heading, #toc-title, .sidebar-section .sidebar-item-text.sidebar-link-text {
+  text-transform: none;
+}
+#toc-title, .quarto-title-meta-heading {
+  font-size: 0.7rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ax-muted);
+}
+
+// Sidebar: small mono, active item as an accent pill.
+.sidebar nav[role="doc-toc"], .sidebar-navigation { font-size: 0.82rem; }
+.sidebar-item .sidebar-link {
+  border-radius: 999px;
+  padding: 0.2rem 0.7rem;
+  color: var(--ax-muted);
+  &:hover { color: var(--ax-text); }
+  &.active {
+    color: var(--ax-emerald);
+    background: color-mix(in srgb, var(--ax-emerald) 12%, transparent);
+    font-weight: 600;
+  }
+}
+.sidebar-section > .sidebar-item-container .sidebar-item-text {
+  font-family: $font-family-monospace;
+  font-size: 0.72rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ax-faint);
+}
+#TOC a.nav-link { color: var(--ax-muted); font-size: 0.8rem; border-left-color: transparent; }
+#TOC a.nav-link.active { color: var(--ax-emerald); border-left-color: var(--ax-emerald); }
+
+// Links: no underline until hover.
+main a:not(.nav-link):not(.btn) {
+  text-decoration: none;
+  border-bottom: 1px solid color-mix(in srgb, currentColor 30%, transparent);
+  &:hover { border-bottom-color: currentColor; }
+}
+
+// Code: panel blocks with a hairline border.
+div.sourceCode, pre:not(.sourceCode) {
+  border: 1px solid var(--ax-border);
+  border-radius: 0.75rem;
+  background: var(--ax-panel);
+}
+pre { font-size: 0.82rem; }
+p code:not(.sourceCode), li code:not(.sourceCode), td code:not(.sourceCode) {
+  color: var(--ax-text);
+  background: color-mix(in srgb, var(--ax-slate) 10%, transparent);
+  border-radius: 0.35rem;
+  padding: 0.08em 0.35em;
+  font-size: 0.86em;
+}
+
+// Tables: mono uppercase header, like archify's cards.
+.table, table {
+  font-size: 0.9rem;
+  thead th {
+    font-family: $font-family-monospace;
+    font-size: 0.7rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ax-muted);
+    border-bottom: 1px solid var(--ax-border) !important;
+  }
+  td, th { border-color: var(--ax-border); }
+}
+
+// Callouts as archify cards: panel, hairline border, coloured dot in the title.
+div.callout {
+  border: 1px solid var(--ax-border) !important;
+  border-left: 1px solid var(--ax-border) !important;
+  border-radius: 0.9rem;
+  background: var(--ax-panel);
+  box-shadow: var(--ax-shadow);
+  .callout-header {
+    background: transparent !important;
+    border-bottom: 0;
+    font-family: $font-family-monospace;
+    font-weight: 700;
+  }
+  i.callout-icon { display: none; }
+  .callout-icon-container {
+    &::before {
+      content: ""; display: inline-block; width: 0.6rem; height: 0.6rem; border-radius: 999px;
+      background: var(--ax-dot, var(--ax-cyan));
+    }
+  }
+}
+div.callout-note { --ax-dot: var(--ax-cyan); }
+div.callout-tip { --ax-dot: var(--ax-emerald); }
+div.callout-warning { --ax-dot: var(--ax-amber); }
+div.callout-important { --ax-dot: var(--ax-rose); }
+div.callout-caution { --ax-dot: var(--ax-orange); }
+
+// Figures and mermaid diagrams sit on the panel without extra chrome.
+.cell-output-display, figure { margin: 1.5rem 0; }
+blockquote {
+  border-left: 3px solid var(--ax-emerald);
+  color: var(--ax-muted);
+  padding-left: 1rem;
+}
+.nav-footer { border-top: 1px solid var(--ax-border); font-size: 0.78rem; color: var(--ax-muted); }
+
+// Accessibility fixes from the axe pass (docs review, 2026-09-30).
+// Plain code blocks inherited Bootstrap's black on the dark panel (1.12:1).
+pre, pre code, pre:not(.sourceCode) code { color: var(--ax-text); }
+// Small uppercase labels need the stronger muted tone (was 3.8:1).
+.quarto-title-meta .quarto-title-meta-heading, header #toc-title, nav#TOC #toc-title { color: var(--ax-muted) !important; }
+// Links inside headings kept a lightened link colour (4.4:1).
+main h1 a, main h2 a, main h3 a, main h4 a { color: var(--bs-link-color); }
+// Wide tables scroll inside their own box on small screens instead of widening the page.
+@media (max-width: 767.98px) {
+  main table { display: block; max-width: 100%; overflow-x: auto; }
+}
+// Quarto dims these (meta headings 0.8, h3 0.9), which drops them below 4.5:1.
+.quarto-title-meta .quarto-title-meta-heading, main h3, main h4 { opacity: 1 !important; }
+// Inline code in headings kept Bootstrap's light background in dark mode.
+main :is(h1, h2, h3, h4, h5) code { background: transparent; color: inherit; }
+// Long inline code and bare URLs wrap instead of widening the page on phones.
+// break-word, not anywhere: anywhere also shrinks table columns to single letters.
+main :not(pre) > code { white-space: pre-wrap; overflow-wrap: break-word; }
+main a { overflow-wrap: break-word; }
+// A cell that is just a name (bioc-registry) shouldn't break mid-name.
+main td > a:only-child { white-space: nowrap; }

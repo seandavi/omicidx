@@ -3,10 +3,13 @@ title: Use OmicIDX from R (omicidxr)
 description: The omicidxr R package connects DuckDB to OmicIDX, pins a version, gives tab-completable dplyr tables, and replaces SRAdb and GEOmetadb.
 ---
 
-[omicidxr](https://github.com/omicidx/omicidxr) is an R package for OmicIDX.
+[omicidxr](https://github.com/seandavi/omicidxr) is an R package for OmicIDX.
 It connects DuckDB to the published Parquet, so you can query it with SQL or
 `dplyr` without downloading anything. It also has helpers for the common
-SRAdb and GEOmetadb tasks.
+SRAdb and GEOmetadb tasks. The [package website](https://seandavi.github.io/omicidxr/)
+documents every function.
+
+The examples on this page ran against `latest/` when the page was built.
 
 ## Install
 
@@ -14,10 +17,10 @@ Install from GitHub with [pak](https://pak.r-lib.org):
 
 ```r
 # install.packages("pak")
-pak::pak("omicidx/omicidxr")
+pak::pak("seandavi/omicidxr")
 ```
 
-`remotes::install_github("omicidx/omicidxr")` works too. The package depends
+`remotes::install_github("seandavi/omicidxr")` works too. The package depends
 on [duckdb](https://r.duckdb.org). On Linux without binary packages (e.g. from
 [Posit Package Manager](https://packagemanager.posit.co) or
 [r-universe](https://r-universe.dev)), duckdb compiles from source, which takes
@@ -28,13 +31,13 @@ on [duckdb](https://r.duckdb.org). On Linux without binary packages (e.g. from
 `omicidx_connect()` returns an ordinary DuckDB DBI connection. Tables are
 `schema.table`, such as `sradb.study` or `geometadb.gsm`:
 
-```r
+```{r}
 library(omicidxr)
 
 con <- omicidx_connect()
 
-omicidx_tables(con)
-omicidx_describe(con, "sradb.run")
+head(omicidx_tables(con))
+head(omicidx_describe(con, "sradb.run"))
 
 DBI::dbGetQuery(con, "SELECT count(*) AS n FROM sradb.study")
 
@@ -43,23 +46,25 @@ DBI::dbDisconnect(con)
 
 ### Pick a version
 
-The `version` argument picks a [version](/guides/versions-and-citation/):
+The `version` argument picks a [version](versions-and-citation.qmd):
 
 | `version` | What you get |
 |---|---|
 | `"latest"` (default) | The nightly build at `https://omicidx.cancerdatasci.org/data/latest/` |
 | `"YYYY-MM-DD"` | A dated nightly build. Kept for 30 days |
-| `"YYYY-MM"` | A monthly release from HuggingFace (`omicidx/omicidx@YYYY-MM`). Kept long term. Cite this one |
+| `"YYYY-MM"` | A monthly release from HuggingFace (`seandavis/omicidx@YYYY-MM`). Kept long term. Cite this one |
 
 ```r
 con <- omicidx_connect("2026-10-20")  # a dated build
 con <- omicidx_connect("2026-10")     # the October 2026 monthly release
 ```
 
-A monthly release takes about 30 seconds to connect, because DuckDB inspects
-every Parquet file as it creates the views. HuggingFace limits anonymous
-requests to 3000 per 5 minutes per IP address. A query can make hundreds, so
-heavy use can fail with HTTP 429 for a few minutes.
+Query `latest` and the dated builds in place. For a monthly release, make a
+[local copy](#a-local-copy) first: HuggingFace limits anonymous requests to
+3000 per 5 minutes per IP address, and one query can make hundreds, so
+querying a monthly release in place soon fails with HTTP 429. Connecting to
+one also takes about 30 seconds, because DuckDB inspects every Parquet file
+as it creates the views.
 
 ## Tab-completable dplyr tables
 
@@ -67,7 +72,7 @@ heavy use can fail with HTTP 429 for a few minutes.
 so `db$sradb$<TAB>` completes table names. Printing `db` lists the schemas,
 tables, and row counts. Nothing is read until `collect()`:
 
-```r
+```{r}
 db <- omicidx_db()
 db
 
@@ -89,15 +94,11 @@ Each helper takes the connection first, runs one query, and returns a tibble.
 
 The runs of an SRA study, with the fields you need to download them:
 
-```r
+```{r}
 con <- omicidx_connect()
 
 sra_runs(con, "SRP299835") |>
   dplyr::select(run_accession, experiment_accession, library_layout, spots, instrument_model)
-#>   run_accession experiment_accession library_layout   spots instrument_model
-#> 1 SRR13332242   SRX9759115           SINGLE         5970564 NextSeq 500
-#> 2 SRR13332243   SRX9759115           SINGLE         6168624 NextSeq 500
-#> … 72 runs
 ```
 
 `sra_runs()` also takes experiment, sample, and GEO accessions.
@@ -105,41 +106,46 @@ sra_runs(con, "SRP299835") |>
 Convert accessions across SRA, GEO, BioSample, and BioProject, in any
 direction:
 
-```r
+```{r}
 sra_convert(con, "GSE164073", c("run", "biosample")) |>
   dplyr::arrange(run)
-#>   run         biosample    gse
-#> 1 SRR13332242 SAMN17187141 GSE164073
-#> 2 SRR13332243 SAMN17187141 GSE164073
-#> … 72 rows
 ```
 
 The samples and platforms of a GEO series, and the characteristics of a
 sample:
 
-```r
+```{r}
 geo_samples(con, "GSE164073") |>
   dplyr::select(gsm, title, gpl, sra_experiment)
-#>   gsm        title         gpl      sra_experiment
-#> 1 GSM4996084 Cornea_mock_1 GPL18573 SRX9759115
-#> 2 GSM4996085 Cornea_mock_2 GPL18573 SRX9759116
-#> … 18 samples
 
 geo_characteristics(con, "GSM4996084")
-#>   gsm        channel tag        value
-#> 1 GSM4996084       1 tissue     cornea
-#> 2 GSM4996084       1 infection  mock
-#> 3 GSM4996084       1 time point 24 hours
 ```
 
 `sra_search()` and `geo_search()` match study and series titles and
 abstracts, case-insensitively:
 
-```r
+```{r}
 sra_search(con, "single cell%glioma", limit = 5)
+
+DBI::dbDisconnect(con)
 ```
 
-### Migrating from SRAdb and GEOmetadb
+## A local copy
+
+`omicidx_download()` copies every table of a release into a local DuckDB
+file and checks the row counts against the release's `manifest.json`. It's
+the R counterpart of [`restore.sql`](duckdb-snapshot.qmd#work-offline), and
+the way to use a monthly release. A full release is tens of GB, so this takes
+a while:
+
+```r
+path <- omicidx_download("2026-10", "omicidx-2026-10.duckdb")
+con <- DBI::dbConnect(duckdb::duckdb(), path, read_only = TRUE)
+DBI::dbGetQuery(con, "SELECT count(*) AS n FROM sradb.study")
+DBI::dbDisconnect(con)
+```
+
+## Migrating from SRAdb and GEOmetadb
 
 The `sradb` and `geometadb` schemas follow the SRAdb and GEOmetadb tables, so
 most code ports by connecting with `omicidx_connect()` and prefixing table
@@ -156,6 +162,7 @@ names with the schema:
 
 There are no SRA submission or GEO DataSet (GDS) tables, and
 `characteristics_ch1` is a list of tag/value pairs rather than a string. The
-[Getting Started vignette](https://github.com/omicidx/omicidxr/blob/main/vignettes/introduction.qmd)
-has the full list of differences, and `help(package = "omicidxr")` documents
-every function.
+[Getting Started vignette](https://seandavi.github.io/omicidxr/articles/introduction.html)
+has the full list of differences, and the
+[reference](https://seandavi.github.io/omicidxr/reference/) documents every
+function.

@@ -1,0 +1,61 @@
+---
+title: OmicIDX
+description: SRA, GEO, BioSample, BioProject, and PubMed metadata as Parquet files you can query from DuckDB, Python, or R. Rebuilt nightly. No account, no key.
+toc: false
+---
+
+```{r}
+#| include: false
+con <- DBI::dbConnect(duckdb::duckdb())
+# Explicit: duckdb's extension autoinstall fails on fresh CI runners.
+DBI::dbExecute(con, "INSTALL httpfs; LOAD httpfs; INSTALL json; LOAD json;")
+```
+
+[Get the data](guides/index.qmd){.btn .btn-primary .me-2 .mb-2}
+[Try it in your browser](playground.qmd){.btn .btn-outline-primary .me-2 .mb-2}
+[View on GitHub](https://github.com/seandavi/omicidx){.btn .btn-link .mb-2}
+
+```{sql}
+-- DuckDB: no download, no credentials
+ATTACH 'https://omicidx.cancerdatasci.org/data/latest/omicidx.duckdb' AS omicidx (READ_ONLY);
+SELECT run_accession, study_title FROM omicidx.sradb.rnaseq_runs WHERE taxon_id = 9606 LIMIT 10;
+```
+
+::: {.grid .mt-4}
+
+::: {.g-col-12 .g-col-md-6 .card .p-3}
+#### Get the data {.mt-0}
+
+Everything lives under `https://omicidx.cancerdatasci.org/data/`. Query it
+in place with [DuckDB](guides/duckdb-snapshot.qmd), or use the
+[Python and R recipes](guides/index.qmd). [Releases](releases.qmd) lists
+every version, its tables and sizes.
+:::
+
+::: {.g-col-12 .g-col-md-6 .card .p-3}
+#### Use it from R {.mt-0}
+
+The [omicidxr](guides/r-omicidxr.qmd) package connects in one line, pins a
+version, and replaces SRAdb and GEOmetadb.
+:::
+
+::: {.g-col-12 .g-col-md-6 .card .p-3}
+#### Cite a release {.mt-0}
+
+Monthly releases on HuggingFace carry a git tag and a DOI. Download one and
+query it locally. See [Versions and citation](guides/versions-and-citation.qmd).
+:::
+
+::: {.g-col-12 .g-col-md-6 .card .p-3}
+#### Try it in your browser {.mt-0}
+
+The [playground](playground.qmd) runs SQL against `latest/` with
+DuckDB-Wasm, and every SQL example in these docs opens in the DuckDB Shell.
+Nothing to install.
+:::
+
+:::
+
+New here? Read [what OmicIDX is](overview/what-is-omicidx.qmd), the [sources
+it indexes](overview/data-sources.qmd), and [how it's
+built](overview/architecture.qmd).
