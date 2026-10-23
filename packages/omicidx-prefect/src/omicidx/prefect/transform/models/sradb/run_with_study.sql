@@ -20,7 +20,8 @@ SELECT
     st.accession AS study_accession,
     st.title AS study_title,
     st.study_type,
-    st.bioproject_accession AS BioProject
+    st.bioproject_accession AS BioProject,
+    sa.organism_as_submitted
 FROM stg.sra_runs r
 LEFT JOIN stg.sra_experiments e ON r.experiment_accession = e.accession
 LEFT JOIN stg.sra_samples sa ON e.sample_accession = sa.accession

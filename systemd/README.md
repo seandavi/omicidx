@@ -16,6 +16,7 @@ server, no worker container, and no deployment manifest — `prefect.yaml`,
 | `omicidx-biosample-extract` | `python -m omicidx.prefect.flows.biosample run` | daily 04:00 UTC (+≤30m jitter) |
 | `omicidx-geo-extract` | `python -m omicidx.prefect.flows.geo run` | daily 06:00 UTC (+≤30m jitter) |
 | `omicidx-pubmed-extract` | `python -m omicidx.prefect.flows.pubmed run` | hourly (+≤5m jitter) |
+| `omicidx-ncbi-taxonomy-extract` | `python -m omicidx.prefect.flows.ncbi_taxonomy run` | Saturday 03:00 UTC (+≤30m jitter) |
 | `omicidx-downstream` | `python -m omicidx.prefect.flows.main run` | daily 05:00 UTC (+≤15m jitter) |
 | `omicidx-ducklake-maintenance` | `omicidx-prefect run ducklake-maintenance` | Sunday 14:00 UTC (+≤30m jitter) |
 | `omicidx-hf-release` | `python -m omicidx.prefect.flows.hf_release run` | monthly, the 2nd 12:00 UTC (+≤15m jitter) |
@@ -67,6 +68,25 @@ Do **not** raise GEO's concurrency to speed this up. `MAX_WORKERS = 1` is the
 fix, not a placeholder: a month already fans 30-wide internally, and the
 measured knee is 8-wide → 61 req/s versus 30-wide → 6.5 req/s with 10% timeouts.
 More outer concurrency makes GEO slower.
+
+## NCBI Taxonomy: committed, not installed
+
+`omicidx-ncbi-taxonomy-extract` lands NCBI's `taxdump.tar.gz` whole, one
+partition per day, which `ducklake-load` turns into `lake.omicidx.ncbi_taxonomy`
+and `ncbi_taxonomy_merged`; the transform uses them to give GEO/SRA/BioSample
+records their current organism names by taxid (#226). It is a single ~80 MB
+download, so it takes no lock and declares no `Conflicts=`. It is **not** in the
+install loop below yet; once the change is merged, install it the same way:
+
+```bash
+cp systemd/omicidx-ncbi-taxonomy-extract.{service,timer} ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now omicidx-ncbi-taxonomy-extract.timer
+systemctl --user start omicidx-ncbi-taxonomy-extract.service   # once by hand
+```
+
+Until it is installed, the load keeps using the newest dump already landed, so
+names stop picking up new renames but nothing breaks.
 
 ## SRA raw retention
 

@@ -37,5 +37,7 @@ SELECT
     channel_count,
     biosample,
     sra_experiment,
-    library_source
-FROM src.geo_samples;
+    library_source,
+    channel_organism_as_submitted[1] AS organism_ch1_as_submitted,
+    channel_organism_as_submitted[2] AS organism_ch2_as_submitted
+FROM stg.geo_samples;

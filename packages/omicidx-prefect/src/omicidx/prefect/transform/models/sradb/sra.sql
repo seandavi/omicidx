@@ -30,7 +30,7 @@ SELECT
     sa.organism AS scientific_name,
     sa.description,
     CAST(sa.attributes AS VARCHAR) AS sample_attribute,
-    sa.biosample_accession,
+    sa.biosample AS biosample_accession,
     st.alias AS study_alias,
     st.accession AS study_accession,
     st.title AS study_title,
@@ -40,7 +40,8 @@ SELECT
     st.bioproject_accession,
     st.geo_accession,
     st.description AS study_description,
-    CAST(st.attributes AS VARCHAR) AS study_attribute
+    CAST(st.attributes AS VARCHAR) AS study_attribute,
+    sa.organism_as_submitted AS scientific_name_as_submitted
 FROM stg.sra_runs r
 LEFT JOIN stg.sra_experiments e ON r.experiment_accession = e.accession
 LEFT JOIN stg.sra_samples sa ON e.sample_accession = sa.accession

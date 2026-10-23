@@ -11,5 +11,6 @@ SELECT
     organism AS scientific_name,
     description,
     CAST(attributes AS VARCHAR) AS sample_attribute,
-    biosample_accession
+    biosample AS biosample_accession,
+    organism_as_submitted AS scientific_name_as_submitted
 FROM stg.sra_samples;

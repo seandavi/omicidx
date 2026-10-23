@@ -13,6 +13,7 @@ whatever has been extracted so far, so one slow source never holds up the rest.
 | NCBI BioSample | [`biosample_set.xml.gz`](https://ftp.ncbi.nlm.nih.gov/biosample/) full dump | daily | `biosamples` |
 | NCBI BioProject | [`bioproject.xml`](https://ftp.ncbi.nlm.nih.gov/bioproject/) full dump | daily | `bioprojects` |
 | NCBI PubMed | [PubMed baseline and update files](https://ftp.ncbi.nlm.nih.gov/pubmed/) | hourly check for new files | `pubmed_articles` |
+| NCBI Taxonomy | [`taxdump.tar.gz`](https://ftp.ncbi.nlm.nih.gov/pub/taxonomy/) | weekly | none: used to resolve organism names |
 
 Every table is one Parquet file: `<name>.parquet` at the top of a release, or
 `sradb/<name>.parquet` / `geometadb/<name>.parquet` for the compatibility
@@ -24,6 +25,7 @@ tables.
 - **GEO:** records are fetched one month at a time, by last-update date. The current month is re-fetched every night because it keeps growing. `geo_series_with_rnaseq_counts` lists the series for which NCBI provides computed RNA-seq count matrices.
 - **BioSample and BioProject:** NCBI publishes these as single full dumps, so each night replaces the previous load.
 - **PubMed:** the annual baseline plus the daily update files. New files are picked up within the hour and published in the next nightly build. `pubmed_articles.parquet` is large (about 37 GB), so filter it in place rather than downloading it.
+- **Organism names:** NCBI Taxonomy renames organisms, and GEO updates its records to match without changing their last-update date. Organism names in `geo_series`, `geo_samples`, `sra_samples`, `biosamples` and the matching `sradb/` and `geometadb/` tables are therefore the *current* NCBI Taxonomy scientific name for the record's taxonomy ID (merged IDs are followed). The name as originally submitted is kept in a matching `*_as_submitted` column (for example `sample_organism_as_submitted`). If a taxonomy ID is unknown, the submitted name is used. `geo_platforms` has no taxonomy ID, so platform organisms stay as submitted.
 - **EBI BioSamples:** extracted daily into the internal lake (by update date, from 2021-01-01), but not published yet.
 
 ## Compatibility tables

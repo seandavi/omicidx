@@ -22,10 +22,10 @@ virtual environment.
 ```
 transform/
 ├── config.py             # SQLMesh Config — reuses omicidx Settings for creds
-├── external_models.yaml  # the 12 lake.omicidx.* base tables (auto-introspected)
+├── external_models.yaml  # the 14 lake.omicidx.* base tables (auto-introspected)
 └── models/
-    ├── src/        # 12 thin views: the single seam onto lake tables
-    ├── stg/        # 10 typed/normalized staging views
+    ├── src/        # 14 thin views: the single seam onto lake tables
+    ├── stg/        # 11 typed/normalized staging views
     ├── geometadb/  # 6 GEOmetadb-compatible views (public contract)
     └── sradb/      # 10 SRAdb-compatible views (public contract)
 ```
@@ -57,6 +57,19 @@ uv run sqlmesh fetchdf "SELECT count(*) FROM sradb.study"
 In the pipeline the `omicidx-transform` Prefect flow (`flows/transform.py`) runs
 `plan(prod, auto_apply=True)` after `ducklake-load`. Idempotent: an unchanged
 plan applies nothing.
+
+## Organism names (#226)
+
+GEO renames organisms (following NCBI Taxonomy) without bumping
+`last_update_date`, so names in the lake go stale while taxids stay right. The
+organism-bearing `stg` views (`geo_series`, `geo_samples`, `sra_samples`,
+`biosamples`) are therefore their lake table column for column, with the names
+replaced by the current scientific name for the record's taxid
+(`stg.ncbi_taxonomy_names`, which follows merged taxids) and the submitted names
+kept in appended `*_as_submitted` columns. An unknown taxid keeps the submitted
+name. `parquet-export` ships those four base files from the `stg` views for the
+same reason (`TAXONOMY_RESOLVED_EXPORTS`). `geo_platforms` has no taxid in the
+lake (the GPL parser drops it), so GPL names stay as submitted.
 
 ## Column lineage (Phase 2, not yet wired)
 

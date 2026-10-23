@@ -146,7 +146,7 @@ hostage (which is what GEO did for a month — #174).
 
 | Stage | Module | What it does |
 |---|---|---|
-| extracts | `flows/{sra,geo,biosample,ebi_biosample,pubmed}.py` | NCBI/EBI → raw Parquet/NDJSON on R2 (`PUBLISH_ROOT`), semaphore-gated. One timer each, `python -m omicidx.prefect.flows.<name> run`. GEO's backlog drained 2026-08-17 (#174) and its timer is installed (#190); its unit holds `%t/omicidx-geo.lock`, which any manual re-extract must also take. GEO is `MAX_WORKERS = 1` on purpose — more outer concurrency makes it *slower*. |
+| extracts | `flows/{sra,geo,biosample,ebi_biosample,pubmed,ncbi_taxonomy}.py` | NCBI/EBI → raw Parquet/NDJSON on R2 (`PUBLISH_ROOT`), semaphore-gated. One timer each, `python -m omicidx.prefect.flows.<name> run`. GEO's backlog drained 2026-08-17 (#174) and its timer is installed (#190); its unit holds `%t/omicidx-geo.lock`, which any manual re-extract must also take. GEO is `MAX_WORKERS = 1` on purpose — more outer concurrency makes it *slower*. |
 | `ducklake-load` | `flows/ducklake*.py` | MERGE raw → `lake.omicidx.*` (hash-gated, copy-on-write; SRA high-water-mark incremental) |
 | `transform` | `flows/transform.py` + `transform/` (SQLMesh) | `plan(prod)` materializes `src`→`stg`→`geometadb.*`/`sradb.*` marts as views in the lake |
 | `parquet-export` | `flows/parquet_export.py` | Reverse-ETL: COPY lake tables **and marts** → public Parquet `r2://data-omicidx/latest/*.parquet` + `latest/{sradb,geometadb}/*.parquet` (ADR-0004) |
