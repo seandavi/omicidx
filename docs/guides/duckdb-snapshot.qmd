@@ -6,6 +6,8 @@ description: Query the public OmicIDX Parquet with DuckDB over anonymous HTTPS. 
 ```{r}
 #| include: false
 con <- DBI::dbConnect(duckdb::duckdb())
+# Explicit: duckdb's extension autoinstall fails on fresh CI runners.
+DBI::dbExecute(con, "INSTALL httpfs; LOAD httpfs; INSTALL json; LOAD json;")
 ```
 
 OmicIDX publishes every table as Parquet over anonymous HTTPS. [DuckDB](https://duckdb.org)

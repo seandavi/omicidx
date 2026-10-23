@@ -7,6 +7,8 @@ toc: false
 ```{r}
 #| include: false
 con <- DBI::dbConnect(duckdb::duckdb())
+# Explicit: duckdb's extension autoinstall fails on fresh CI runners.
+DBI::dbExecute(con, "INSTALL httpfs; LOAD httpfs; INSTALL json; LOAD json;")
 ```
 
 [Get the data](guides/index.qmd){.btn .btn-primary .me-2 .mb-2}

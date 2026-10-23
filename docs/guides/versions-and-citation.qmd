@@ -6,6 +6,8 @@ description: latest vs dated vs monthly releases, how to pin a version, and how 
 ```{r}
 #| include: false
 con <- DBI::dbConnect(duckdb::duckdb())
+# Explicit: duckdb's extension autoinstall fails on fresh CI runners.
+DBI::dbExecute(con, "INSTALL httpfs; LOAD httpfs; INSTALL json; LOAD json;")
 ```
 
 OmicIDX publishes three kinds of versions. They hold the same tables in the
