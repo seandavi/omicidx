@@ -28,16 +28,21 @@ PUBLIC_VIEWS: list[tuple[str, str, str]] = [
 ] + [(schema, table, f"{schema}/{table}.parquet") for schema, table in MART_EXPORTS]
 
 
+def _folder_url(folder: str) -> str:
+    """Public HTTPS URL of a bundle folder (``latest`` or ``v{date}``)."""
+    base = settings().public_parquet_https_base
+    if not base:
+        raise RuntimeError("PUBLIC_PARQUET_HTTPS_BASE is not set")
+    return f"{base.rstrip('/')}/{folder}"
+
+
 def _view_statements(folder: str) -> list[str]:
     """CREATE SCHEMA + CREATE VIEW per public Parquet file under ``folder``.
 
     ``folder`` is ``latest`` or ``v{date}``: a dated bundle's views pin that
     folder's files, so it stays readable after ``latest/`` moves on.
     """
-    base = settings().public_parquet_https_base
-    if not base:
-        raise RuntimeError("PUBLIC_PARQUET_HTTPS_BASE is not set")
-    base = f"{base.rstrip('/')}/{folder}"
+    base = _folder_url(folder)
     stmts = [f"CREATE SCHEMA IF NOT EXISTS {s}" for s in MART_SCHEMAS]
     for schema, view, file in PUBLIC_VIEWS:
         stmts.append(
@@ -54,6 +59,38 @@ def views_sql(folder: str = "latest") -> str:
     Parquet — so it carries concrete HTTPS URLs (`_view_statements`).
     """
     return ";\n".join(_view_statements(folder)) + ";\n"
+
+
+def restore_sql(folder: str = "latest") -> str:
+    """The co-published restore.sql: a materialized local copy (#225).
+
+    ``duckdb omicidx.duckdb < restore.sql`` copies every public table into a
+    local database file (same schemas and names as views.sql), then fails
+    unless each table's row count matches the folder's manifest.json.
+    """
+    base = _folder_url(folder)
+    stmts = [f"CREATE SCHEMA IF NOT EXISTS {s}" for s in MART_SCHEMAS]
+    for schema, table, file in PUBLIC_VIEWS:
+        stmts.append(
+            f"CREATE OR REPLACE TABLE {schema}.{table} AS "
+            f"SELECT * FROM read_parquet('{base}/{file}')"
+        )
+    counts = "\n    UNION ALL ".join(
+        f"SELECT '{schema}' AS schema, '{table}' AS \"table\", count(*) AS n "
+        f"FROM {schema}.{table}"
+        for schema, table, _ in PUBLIC_VIEWS
+    )
+    stmts.append(
+        "SELECT CASE WHEN count(*) = 0 THEN 'row counts match manifest.json'\n"
+        "  ELSE error('row counts differ from manifest.json: ' || "
+        "string_agg(r.schema || '.' || r.\"table\", ', ')) END AS restore_check\n"
+        f"FROM (\n    {counts}\n) r\n"
+        "LEFT JOIN (SELECT unnest(tables, recursive := true) "
+        f"FROM read_json('{base}/manifest.json')) m\n"
+        '  ON r.schema = m.schema AND r."table" = m."table"\n'
+        "WHERE m.row_count IS DISTINCT FROM r.n"
+    )
+    return ";\n".join(stmts) + ";\n"
 
 
 def build_duckdb_local(db_file: str = DB_FILE, folder: str = "latest") -> dict:
