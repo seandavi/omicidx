@@ -13,6 +13,7 @@ DuckDB with NO credentials. No R2, no lake, no credentials.
 
 import functools
 import http.server
+import json
 import socketserver
 import threading
 from types import SimpleNamespace
@@ -73,3 +74,41 @@ def test_views_duckdb_reads_public_parquet_anonymously(tmp_path, monkeypatch):
         )
     finally:
         httpd.shutdown()
+
+
+def test_restore_sql_materializes_and_checks_manifest(tmp_path, monkeypatch):
+    """restore.sql copies every table locally and fails on a row-count mismatch."""
+    folder = tmp_path / "latest"
+    for schema in sql.MART_SCHEMAS:
+        (folder / schema).mkdir(parents=True)
+    con = duckdb.connect()
+    for _schema, _view, file in sql.PUBLIC_VIEWS:
+        con.execute(
+            f"COPY (SELECT range AS id FROM range(3)) TO '{folder / file}' (FORMAT PARQUET)"
+        )
+    con.close()
+    tables = [{"schema": s, "table": t, "row_count": 3} for s, t, _ in sql.PUBLIC_VIEWS]
+    manifest = folder / "manifest.json"
+    manifest.write_text(json.dumps({"tables": tables}))
+    # A local folder path stands in for the HTTPS base; the SQL is the same.
+    monkeypatch.setattr(
+        sql,
+        "settings",
+        lambda: SimpleNamespace(public_parquet_https_base=str(tmp_path)),
+    )
+    restore = sql.restore_sql("latest")
+
+    local = duckdb.connect(str(tmp_path / "restored.duckdb"))
+    local.execute(restore)
+    assert local.execute("SELECT count(*) FROM sradb.run").fetchone()[0] == 3
+    kinds = local.execute(
+        "SELECT DISTINCT table_type FROM information_schema.tables"
+    ).fetchall()
+    assert kinds == [("BASE TABLE",)]
+
+    tables[0]["row_count"] = 4
+    manifest.write_text(json.dumps({"tables": tables}))
+    with pytest.raises(
+        duckdb.Error, match="differ from manifest.json: main.bioprojects"
+    ):
+        local.execute(restore)

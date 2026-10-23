@@ -8,6 +8,8 @@ Bundle contents, next to the flat ``*.parquet`` that ``parquet-export`` wrote:
 - ``omicidx.duckdb`` — views over every public Parquet file in the same folder
   (base tables + ``sradb``/``geometadb`` marts), by absolute HTTPS URL.
 - ``views.sql`` — the same view definitions as plain SQL (ADR-0004).
+- ``restore.sql`` — builds a materialized local copy of every table, then
+  checks row counts against ``manifest.json`` (#225).
 - ``manifest.json`` — provenance attestation (spec §2a): raw partition set,
   transform SHA, internal lake snapshot id, publish timestamp, dated path.
 
@@ -29,7 +31,7 @@ from omicidx.prefect.config import (
     get_public_upath,
     publish_date,
 )
-from omicidx.prefect.flows.sql import DB_FILE, build_duckdb_local
+from omicidx.prefect.flows.sql import DB_FILE, build_duckdb_local, restore_sql
 from omicidx.prefect.run import retry
 from omicidx.prefect.semaphore import SemaphoreStore
 
@@ -125,9 +127,11 @@ def publish_bundle(date: str | None = None) -> dict:
             manifest = manifest or build_manifest(date, built["summaries"])
             (workdir / "manifest.json").write_text(json.dumps(manifest, indent=2))
             (workdir / "views.sql").write_text(built["views_sql"])
-            for name in (DB_FILE, "views.sql", "manifest.json"):
+            (workdir / "restore.sql").write_text(restore_sql(folder))
+            # manifest.json last: it marks the folder complete (hf_release).
+            for name in (DB_FILE, "views.sql", "restore.sql", "manifest.json"):
                 _put_file(workdir / name, folder, name)
-            log.info(f"Published {DB_FILE}, views.sql, manifest.json → {folder}/")
+            log.info(f"Published {DB_FILE}, SQL files, manifest.json → {folder}/")
 
     return {"date": date, "manifest": manifest}
 
