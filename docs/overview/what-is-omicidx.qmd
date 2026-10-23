@@ -14,7 +14,7 @@ account, no API key, and no server to call. You read the files.
 - **NCBI BioSample** and **BioProject**: the sample and project records that tie SRA and GEO together.
 - **NCBI PubMed**: citation records, for linking publications to the data they describe.
 
-See [Data sources](/overview/data-sources/) for where each comes from and how
+See [Data sources](data-sources.qmd) for where each comes from and how
 often it refreshes.
 
 On top of the source tables, OmicIDX builds two sets of compatibility tables:
@@ -26,11 +26,11 @@ On top of the source tables, OmicIDX builds two sets of compatibility tables:
 
 - **Nightly:** `https://omicidx.cancerdatasci.org/data/latest/` is rebuilt every night.
 - **Dated:** an immutable `v{YYYY-MM-DD}/` folder per night, kept for 30 days.
-- **Monthly:** a long-term release on HuggingFace with a git tag and a DOI.
+- **Monthly:** a long-term release on HuggingFace ([`seandavis/omicidx`](https://huggingface.co/datasets/seandavis/omicidx)) with a git tag and a DOI, to download and cite.
 
-[Working with the data](/guides/duckdb-snapshot/) has the DuckDB details;
-[Versions and citation](/guides/versions-and-citation/) explains which one to
-use.
+[Working with the data](../guides/duckdb-snapshot.qmd) has the DuckDB details;
+[Versions and citation](../guides/versions-and-citation.qmd) explains which one to
+use, and [Releases](../releases.qmd) lists what's available.
 
 ## What it isn't
 

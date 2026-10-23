@@ -1,4 +1,5 @@
 import { logUsage } from "./analytics";
+import { conditionalHeaders } from "./conditional";
 import { listDirectory } from "./listing";
 import { route } from "./route";
 import { parseRange } from "./range";
@@ -77,7 +78,7 @@ export default {
     const rangeHeader = request.headers.get("range");
 
     // Build R2GetOptions
-    const options: R2GetOptions = { onlyIf: request.headers };
+    const options: R2GetOptions = { onlyIf: conditionalHeaders(request.headers) };
 
     if (rangeHeader) {
       // We need total size to resolve open-ended ranges. Use a HEAD first

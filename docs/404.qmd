@@ -1,0 +1,8 @@
+---
+title: Page not found
+toc: false
+---
+
+There's no page at this address. Try the [home page](index.qmd), the search
+box, or [Releases](releases.qmd) for the data files. Data lives under
+[`/data/`](https://omicidx.cancerdatasci.org/data/).

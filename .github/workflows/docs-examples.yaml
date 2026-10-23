@@ -1,0 +1,37 @@
+# Weekly full re-render of the docs with every example executed against live
+# data (freeze off: _freeze/ is deleted first). A broken example, an R/Python
+# error or a changed table fails the run. To refresh the committed _freeze/
+# after a content change, render locally and commit it (docs/README.md).
+name: docs-examples
+
+on:
+  schedule:
+    - cron: "17 9 * * 1"
+  workflow_dispatch:
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: quarto-dev/quarto-actions/setup@v2
+
+      # reticulate provisions the Python cells' environment with uv.
+      - uses: astral-sh/setup-uv@v5
+
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          use-public-rspm: true
+
+      - name: Install R packages
+        env:
+          GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          Rscript -e 'install.packages(c("remotes", "knitr", "rmarkdown", "reticulate", "duckdb", "DBI", "dplyr", "dbplyr"))'
+          Rscript -e 'remotes::install_github("seandavi/omicidxr")'
+
+      - name: Render, executing every example
+        run: |
+          rm -rf docs/_freeze
+          quarto render docs

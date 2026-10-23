@@ -119,7 +119,7 @@ stay deferred. The killer app decides it (§5).
 
 ### (4) Public website with Diátaxis docs — DERIVED
 
-- The existing Astro/Starlight site under `docs/`, filled out along Diátaxis
+- The Quarto site under `docs/` (Astro/Starlight until #223), filled out along Diátaxis
   axes (tutorial / how-to / reference / explanation).
 - Must document the real access story: how to read the frozen artifact, the
   `views.sql` contract, the mart schemas, and — at B′ — how to run `AS OF`

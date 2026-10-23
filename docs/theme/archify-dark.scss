@@ -1,0 +1,24 @@
+/*-- scss:defaults --*/
+// Palette from archify's dark theme (assets/template.html).
+$body-bg: #020617;
+$body-color: #e2e8f0;
+$primary: #34d399;
+$link-color: #22d3ee;
+$border-color: #1e293b;
+$text-muted: #94a3b8;
+$navbar-bg: rgba(2, 6, 23, 0.82);
+$navbar-fg: #cbd5e1;
+$navbar-hl: #34d399;
+$sidebar-bg: transparent;
+$footer-bg: transparent;
+$code-block-bg: #0b1222;
+$code-color: #c4b5fd;
+
+/*-- scss:rules --*/
+:root {
+  --ax-bg: #020617; --ax-panel: #0b1222; --ax-border: #1e293b; --ax-grid-dot: rgba(148, 163, 184, 0.14);
+  --ax-text: #e2e8f0; --ax-muted: #94a3b8; --ax-faint: #7d8da1;
+  --ax-cyan: #22d3ee; --ax-emerald: #34d399; --ax-violet: #a78bfa; --ax-amber: #fbbf24;
+  --ax-rose: #fb7185; --ax-orange: #fb923c; --ax-slate: #94a3b8;
+  --ax-shadow: 0 1px 0 rgba(255, 255, 255, 0.02), 0 12px 32px rgba(0, 0, 0, 0.35);
+}

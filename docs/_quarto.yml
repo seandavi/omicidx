@@ -1,0 +1,91 @@
+project:
+  type: website
+  output-dir: _site
+  # Only the public site. adrs/, specs/, research/ and the other .md files in
+  # docs/ are contributor notes and stay unrendered.
+  render:
+    - "*.qmd"
+    - "guides/*.qmd"
+    - "overview/*.qmd"
+
+execute:
+  # Examples run against live data at render time; _freeze/ (committed) keeps
+  # deploys and the PR docs job from needing the data or R/Python.
+  freeze: auto
+
+knitr:
+  opts_chunk:
+    comment: "#>"
+    # SQL chunks run on the DuckDB connection each page opens in its setup chunk.
+    connection: con
+
+website:
+  title: "OmicIDX"
+  site-url: "https://omicidx.cancerdatasci.org"
+  description: "Public, queryable index of NCBI SRA, GEO, BioSample, BioProject, and PubMed metadata, published as Parquet over anonymous HTTPS."
+  favicon: favicon.svg
+  # The one GA4 property shared by every site (#222).
+  google-analytics: "G-KLLV1GCF4E"
+  repo-url: https://github.com/seandavi/omicidx
+  repo-subdir: docs
+  repo-branch: main
+  repo-actions: [edit, issue]
+  search: true
+  navbar:
+    left:
+      - href: guides/index.qmd
+        text: Get the data
+      - href: releases.qmd
+        text: Releases
+      - href: playground.qmd
+        text: Playground
+    right:
+      - icon: github
+        href: https://github.com/seandavi/omicidx
+        aria-label: GitHub repository
+  sidebar:
+    style: docked
+    contents:
+      - section: Overview
+        contents:
+          - href: overview/what-is-omicidx.qmd
+            text: What is OmicIDX?
+          - href: overview/data-sources.qmd
+            text: Data sources
+          - href: overview/architecture.qmd
+            text: Architecture
+      - section: Guides
+        contents:
+          - href: guides/index.qmd
+            text: Get the data
+          - href: guides/duckdb-snapshot.qmd
+            text: Query with DuckDB
+          - href: guides/r-omicidxr.qmd
+            text: Use from R (omicidxr)
+          - href: guides/versions-and-citation.qmd
+            text: Versions and citation
+      - section: In the browser
+        contents:
+          - href: playground.qmd
+            text: SQL playground
+          - href: releases.qmd
+            text: Releases
+
+format:
+  html:
+    # bioc-infrastructure's archify theme on cosmo (theme/archify*.scss).
+    theme:
+      light: [cosmo, theme/archify.scss, theme/archify-light.scss, theme/omicidx.scss]
+      dark: [cosmo, theme/archify.scss, theme/archify-dark.scss, theme/omicidx.scss]
+    respect-user-color-scheme: true
+    # Quarto's WCAG-AA highlight style; switches to a11y-dark in dark mode.
+    highlight-style: a11y
+    grid:
+      sidebar-width: 250px
+      body-width: 880px
+      margin-width: 220px
+    toc: true
+    code-copy: true
+    df-print: kable
+    # "Open in DuckDB Shell" under every SQL example (#227).
+    include-after-body: shell-links.html

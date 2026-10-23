@@ -3,9 +3,18 @@ title: Query with DuckDB
 description: Query the public OmicIDX Parquet with DuckDB over anonymous HTTPS. Covers the published database, the SRAdb- and GEOmetadb-compatible tables, and the raw source tables.
 ---
 
+```{r}
+#| include: false
+con <- DBI::dbConnect(duckdb::duckdb())
+```
+
 OmicIDX publishes every table as Parquet over anonymous HTTPS. [DuckDB](https://duckdb.org)
 reads only the parts of each file that a query needs, so you can query tens of
 millions of rows from a laptop without downloading anything first.
+
+The examples on this page ran against `latest/` when the page was built. Each
+SQL example has an **Open in DuckDB Shell** link that runs it in your browser,
+and the [playground](../playground.qmd) has an editable query box.
 
 ## What's published
 
@@ -19,7 +28,8 @@ https://omicidx.cancerdatasci.org/data/
 
 Under it, `latest/` is rebuilt every night. Each night also gets an immutable
 `v{YYYY-MM-DD}/` folder, kept for 30 days. See [Versions and
-citation](/guides/versions-and-citation/) for which to use. Each folder contains:
+citation](versions-and-citation.qmd) for which to use, and
+[Releases](../releases.qmd) for what's there now. Each folder contains:
 
 | Path | What it is |
 |---|---|
@@ -28,6 +38,7 @@ citation](/guides/versions-and-citation/) for which to use. Each folder contains
 | `geometadb/<table>.parquet` | GEOmetadb-compatible tables |
 | `omicidx.duckdb` | A small DuckDB database with a view over every Parquet file |
 | `views.sql` | The same views as plain SQL |
+| `restore.sql` | Builds a local copy of every table (see [Work offline](#work-offline)). Older dated folders don't have it |
 | `manifest.json` | Publish date, transform commit, lake snapshot id, row counts |
 
 You can browse a folder listing in your browser, e.g.
@@ -38,11 +49,13 @@ You can browse a folder listing in your browser, e.g.
 `omicidx.duckdb` is a few hundred KB of view definitions. Attach it over HTTPS
 and query the views. The data stays remote.
 
-```sql
+```{sql}
 ATTACH 'https://omicidx.cancerdatasci.org/data/latest/omicidx.duckdb'
   AS omicidx (READ_ONLY);
 USE omicidx;
+```
 
+```{sql}
 SELECT run_accession, study_title
 FROM sradb.rnaseq_runs
 WHERE taxon_id = 9606          -- human
@@ -58,10 +71,12 @@ first.
 Every table is a plain file, so you can skip the database and use
 `read_parquet`:
 
-```sql
-SELECT count(*)
+```{sql}
+SELECT count(*) AS n
 FROM read_parquet('https://omicidx.cancerdatasci.org/data/latest/biosamples.parquet');
+```
 
+```{sql}
 SELECT study_accession, title, study_type
 FROM 'https://omicidx.cancerdatasci.org/data/latest/sra_studies.parquet'
 WHERE bioproject = 'PRJNA1147303';
@@ -88,11 +103,13 @@ dropped, and BioProject, GEO, and PubMed cross-references are added.
 | `sradb.rnaseq_runs`, `sradb.wgs_runs` | `run_with_study` filtered by library strategy |
 | `sradb.human_runs`, `sradb.mouse_runs` | `run_with_study` filtered by taxon |
 
-```sql
+```{sql}
 SELECT study_accession, study_title, bioproject_accession, pubmed_ids
 FROM sradb.study
 WHERE study_accession = 'SRP000001';
+```
 
+```{sql}
 -- RNA-seq runs for one BioProject
 SELECT run_accession, platform, instrument_model, total_bases
 FROM sradb.run_with_study
@@ -105,13 +122,15 @@ A modernized [GEOmetadb](https://bioconductor.org/packages/GEOmetadb/) schema:
 series (`gse`), samples (`gsm`), platforms (`gpl`), the `gse_gsm` and `gse_gpl`
 link tables, and `geo_supplemental_files`.
 
-```sql
+```{sql}
 -- Series with NCBI-computed RNA-seq counts
 SELECT gse, title
 FROM geometadb.gse
 WHERE has_geo_computed_rnaseq
 LIMIT 10;
+```
 
+```{sql}
 -- All samples in a series
 SELECT gsm FROM geometadb.gse_gsm WHERE gse = 'GSE118849';
 ```
@@ -124,7 +143,7 @@ In `omicidx.duckdb` they're views in the default schema, so after `USE omicidx`
 you can write `FROM sra_studies`. Older dated databases contain only the
 `sradb` and `geometadb` views; use `read_parquet` for source tables there.
 
-```sql
+```{sql}
 -- Unnest SRA study attributes
 SELECT accession, a.tag, a.value
 FROM 'https://omicidx.cancerdatasci.org/data/latest/sra_studies.parquet',
@@ -134,18 +153,27 @@ LIMIT 10;
 
 ## Work offline
 
-To query heavily, download the files you need and point DuckDB at the local
-copies:
+For heavy use, make a local copy. `restore.sql` copies every table of a
+folder into a local DuckDB file, with the same schemas and names as the
+views, then checks each table's row count against the folder's
+`manifest.json`:
+
+```bash
+curl -O https://omicidx.cancerdatasci.org/data/latest/restore.sql
+duckdb omicidx-local.duckdb < restore.sql
+duckdb -readonly omicidx-local.duckdb -c "SELECT count(*) FROM sradb.study"
+```
+
+A full copy is tens of GB, most of it `pubmed_articles` and `biosamples`. In
+R, [`omicidx_download()`](r-omicidxr.qmd#a-local-copy) does the same. To copy
+only a few tables, download their Parquet files and point DuckDB at them:
 
 ```bash
 curl -O https://omicidx.cancerdatasci.org/data/latest/sradb/study.parquet
 duckdb -c "SELECT count(*) FROM 'study.parquet'"
 ```
 
-`views.sql` points at absolute HTTPS URLs. To query local copies, edit the
-URLs, or write your own `CREATE VIEW` statements.
-
 ## Notes
 
 - Requests are anonymous HTTPS range requests. Behind a strict firewall, allow `omicidx.cancerdatasci.org`.
-- Any recent DuckDB release works. The examples on this page were tested with DuckDB 1.5.
+- Any recent DuckDB release works. This page was built with DuckDB `r as.character(packageVersion("duckdb"))` (R package).

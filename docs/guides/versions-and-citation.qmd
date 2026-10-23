@@ -1,0 +1,127 @@
+---
+title: Versions and citation
+description: latest vs dated vs monthly releases, how to pin a version, and how to cite OmicIDX.
+---
+
+```{r}
+#| include: false
+con <- DBI::dbConnect(duckdb::duckdb())
+```
+
+OmicIDX publishes three kinds of versions. They hold the same tables in the
+same layout; they differ in how long they last and how you use them.
+[Releases](../releases.qmd) lists the ones available now.
+
+| Version | Where | Changes? | Kept | Use it by |
+|---|---|---|---|---|
+| `latest/` | `https://omicidx.cancerdatasci.org/data/latest/` | rebuilt every night | always the newest | querying in place |
+| Dated | `https://omicidx.cancerdatasci.org/data/v{YYYY-MM-DD}/` | never | 30 days | querying in place |
+| Monthly release | HuggingFace dataset [`seandavis/omicidx`](https://huggingface.co/datasets/seandavis/omicidx), git tag `YYYY-MM` | never | long term, with a DOI | downloading, then querying locally |
+
+`latest/` and the dated folders are served for querying in place: DuckDB
+`ATTACH`, `read_parquet`, omicidxr, and the [playground](../playground.qmd)
+all read them over HTTPS. The monthly releases are the long-term archive and
+the version to cite. Download one, then query it locally.
+
+## Which one to use
+
+- **Exploring, or building something that should track NCBI:** use `latest/`.
+- **An analysis you'll rerun in the next few weeks:** pin a dated folder.
+- **A paper, a shared pipeline, or anything you'll cite:** download a monthly release.
+
+## Pin a dated folder
+
+Replace `latest/` with a date:
+
+```{.sql .no-shell}
+SELECT count(*)
+FROM read_parquet('https://omicidx.cancerdatasci.org/data/v2026-10-20/sradb/study.parquet');
+```
+
+To see which dates are available, open [Releases](../releases.qmd) or the
+[folder listing](https://omicidx.cancerdatasci.org/data/). Dated folders older
+than 30 days are deleted. Use a monthly release for anything longer.
+
+::: callout-caution
+In dated folders published before late October 2026, `omicidx.duckdb` and
+`views.sql` point at `latest/`, not at their own folder. For those dates, pin
+with `read_parquet` on the dated URLs, as above.
+:::
+
+## Use a monthly release
+
+Once a month, one nightly build is copied to the HuggingFace dataset
+`seandavis/omicidx` and tagged with its month (e.g. `2026-10`). Files sit at
+the repository root in the same layout as R2 (`sra_runs.parquet`,
+`sradb/study.parquet`, …).
+
+Download the release with the [`hf` command-line
+tool](https://huggingface.co/docs/huggingface_hub/guides/cli) (in
+`huggingface_hub`; `uvx --from huggingface_hub hf` runs it without
+installing), then query the local files:
+
+```bash
+hf download seandavis/omicidx --repo-type dataset --revision 2026-10 \
+  --local-dir omicidx-2026-10
+duckdb -c "SELECT count(*) FROM 'omicidx-2026-10/sradb/study.parquet'"
+```
+
+`--include 'sradb/*'` downloads only some of the files. A [HuggingFace
+token](https://huggingface.co/settings/tokens) (`hf auth login`) raises the
+download rate limits.
+
+In R, `omicidx_download("2026-10", "omicidx-2026-10.duckdb")` builds a local
+DuckDB database from a monthly release and checks its row counts (see
+[omicidxr](r-omicidxr.qmd#a-local-copy)). For `latest/` and dated folders,
+[`restore.sql`](duckdb-snapshot.qmd#work-offline) does the same from the
+command line.
+
+DuckDB can also read a release in place with `hf://` paths, where `@tag` pins
+the release:
+
+```{.sql .no-shell}
+SELECT count(*)
+FROM 'hf://datasets/seandavis/omicidx@2026-10/sradb/study.parquet';
+```
+
+That's fine for a quick look, but HuggingFace limits anonymous requests to
+3000 per 5 minutes per IP address, and a query can make hundreds, so repeated
+queries soon fail with HTTP 429. Download for real work.
+
+## Cite OmicIDX
+
+Each monthly release gets a DOI, minted on HuggingFace. Cite the DOI of the
+release you used, which you'll find on the dataset page for that tag. In your
+methods, also state the release tag (e.g. `2026-10`).
+
+If you used a dated folder instead, record its URL and the `transform_sha`
+and `lake_snapshot_id` from its `manifest.json`. The folder will be gone in
+30 days, so a monthly release is the better thing to cite.
+
+## The manifest
+
+Every version has a `manifest.json`:
+
+```bash
+curl -s https://omicidx.cancerdatasci.org/data/latest/manifest.json
+```
+
+DuckDB reads it directly. The provenance fields of the current `latest/`:
+
+```{sql}
+SELECT publish_date, dated_path, transform_sha, lake_snapshot_id
+FROM read_json('https://omicidx.cancerdatasci.org/data/latest/manifest.json');
+```
+
+And the row count of each published table:
+
+```{sql, max.print = 50}
+SELECT t.schema, t."table", t.row_count
+FROM read_json('https://omicidx.cancerdatasci.org/data/latest/manifest.json'),
+     unnest(tables) AS u(t)
+ORDER BY t.schema, t."table";
+```
+
+- `transform_sha` is the commit of the [pipeline code](https://github.com/seandavi/omicidx) that built the tables.
+- `lake_snapshot_id` is the snapshot of the internal lake the tables were exported from.
+- `tables` gives the row count of each published table. `raw_partition_counts` records how many upstream partitions each source had.

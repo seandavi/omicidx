@@ -1,0 +1,105 @@
+---
+title: SQL playground
+description: Run SQL against the latest OmicIDX release in your browser with DuckDB-Wasm. Nothing to install.
+---
+
+Edit the query and press **Run**. It runs in your browser with
+[DuckDB-Wasm](https://duckdb.org/docs/api/wasm/overview), against
+`latest/` attached as `omicidx` (and selected with `USE omicidx`, so
+`sradb.study` works as well as `omicidx.sradb.study`). The first run
+downloads DuckDB itself, a few MB.
+
+Queries that filter and use `LIMIT` are fast, because DuckDB fetches only the
+parts of each Parquet file it needs. Full scans of the big tables
+(`sra_runs` is 1.7 GB, `biosamples` 7.8 GB, `pubmed_articles` 37 GB) are slow
+and can run out of browser memory. For those, use DuckDB on your own machine
+([Query with DuckDB](guides/duckdb-snapshot.qmd)).
+
+```{ojs}
+//| echo: false
+duckdb = import("https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.33.1-dev57.0/+esm")
+
+conn = {
+  const bundle = await duckdb.selectBundle(duckdb.getJsDelivrBundles());
+  const workerUrl = URL.createObjectURL(
+    new Blob([`importScripts("${bundle.mainWorker}");`], { type: "text/javascript" })
+  );
+  const db = new duckdb.AsyncDuckDB(new duckdb.VoidLogger(), new Worker(workerUrl));
+  await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
+  // Read byte ranges only. By default DuckDB-Wasm downloads each whole
+  // Parquet file (sradb/rnaseq_runs is 130 MB) before querying it. All three
+  // flags are needed: leaving forceFullHTTPReads unset breaks every open.
+  await db.open({
+    filesystem: { reliableHeadRequests: true, allowFullHTTPReads: false, forceFullHTTPReads: false }
+  });
+  const c = await db.connect();
+  await c.query("ATTACH 'https://omicidx.cancerdatasci.org/data/latest/omicidx.duckdb' AS omicidx (READ_ONLY)");
+  await c.query("USE omicidx");
+  return c;
+}
+
+viewof sql = Inputs.textarea({
+  label: "SQL",
+  value: `SELECT run_accession, study_title
+FROM sradb.rnaseq_runs
+WHERE taxon_id = 9606
+LIMIT 10;`,
+  rows: 8,
+  width: "100%",
+  monospace: true,
+  submit: "Run"
+})
+
+result = {
+  const t0 = performance.now();
+  try {
+    const table = await conn.query(sql);
+    // int64 columns arrive as BigInt, which the table view can't format.
+    const rows = table.toArray().map((r) =>
+      Object.fromEntries(Object.entries(r.toJSON()).map(([k, v]) =>
+        [k, typeof v === "bigint" ? Number(v) : v]))
+    );
+    return { rows, seconds: (performance.now() - t0) / 1000 };
+  } catch (e) {
+    return { error: e.message };
+  }
+}
+
+result.error
+  ? html`<div class="alert alert-danger" role="alert"><pre class="mb-0">${result.error}</pre></div>`
+  : html`<p class="small text-muted" id="playground-status">${result.rows.length} rows in ${result.seconds.toFixed(1)} s ·
+      <a href="${window.omicidxShellUrl(sql)}" target="_blank" rel="noopener">Open in DuckDB Shell ↗</a></p>`
+
+Inputs.table(result.rows ?? [], { rows: 15 })
+```
+
+## Queries to try
+
+Copy one into the box, or open it in the DuckDB Shell.
+
+```sql
+-- Every table in the database
+SELECT schema_name, view_name
+FROM duckdb_views()
+WHERE database_name = 'omicidx' AND NOT internal
+ORDER BY 1, 2;
+```
+
+```sql
+-- The runs of one SRA study
+SELECT run_accession, experiment_accession, library_layout, total_spots
+FROM sradb.run_with_study
+WHERE study_accession = 'SRP299835'
+LIMIT 20;
+```
+
+```sql
+-- The provenance of this release
+SELECT publish_date, transform_sha, lake_snapshot_id
+FROM read_json('https://omicidx.cancerdatasci.org/data/latest/manifest.json');
+```
+
+```sql
+-- Series with NCBI-computed RNA-seq counts
+SELECT gse, title FROM geometadb.gse WHERE has_geo_computed_rnaseq LIMIT 10;
+```

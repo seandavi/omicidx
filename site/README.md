@@ -4,7 +4,7 @@ One Cloudflare Worker (named `data-omicidx`) serves the whole public site:
 
 | URL | Serves |
 |---|---|
-| `https://omicidx.cancerdatasci.org/` | docs (the Astro build in `../docs/dist`, Workers static assets) |
+| `https://omicidx.cancerdatasci.org/` | docs (the Quarto build in `../docs/_site`, Workers static assets) |
 | `https://omicidx.cancerdatasci.org/data/*` | the `data-omicidx` R2 bucket, `/data` stripped from the key |
 | `https://data.omicidx.cancerdatasci.org/*` | the same bucket at `/` |
 | `https://data-omicidx.cancerdatasci.org/*` | retired legacy host (#211): 301 to `/data/latest/{basename}` if that file exists, else the docs home |
@@ -49,8 +49,9 @@ npx wrangler login
 npx wrangler deploy
 ```
 
-`wrangler dev` and `wrangler deploy` rebuild `../docs/dist` first (the
-`[build]` command in `wrangler.toml`). All three custom domains are bound by the
+There's no build step: `wrangler dev` and `wrangler deploy` serve whatever is
+in `../docs/_site`, so run `quarto render docs` first (it renders from the
+committed `_freeze/`; see `../docs/README.md`). All three custom domains are bound by the
 `[[routes]]` blocks; `custom_domain = true` creates their DNS records. To try
 the data host locally: `npx wrangler dev --local-upstream data.omicidx.cancerdatasci.org`.
 
