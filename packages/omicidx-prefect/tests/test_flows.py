@@ -173,7 +173,6 @@ def test_unpartitioned_extracts_are_direct(monkeypatch, tmp_path):
         "_extract_entity",
         lambda **kw: (calls.append(kw["entity"]), {"row_count": 1})[1],
     )
-    monkeypatch.setattr(mod, "bioproject_to_parquet", lambda: {"row_count": 1})
 
     today = date.today().isoformat()
     assert mod.biosample_extract()["key"] == today
