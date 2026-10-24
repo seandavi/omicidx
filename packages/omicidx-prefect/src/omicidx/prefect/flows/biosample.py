@@ -32,7 +32,7 @@ import httpx
 import orjson
 import tenacity
 from omicidx.parsers.biosample import BioProjectParser, BioSampleParser
-from omicidx.prefect.config import get_duckdb_connection, get_duckdb_path, get_upath
+from omicidx.prefect.config import get_upath
 from omicidx.prefect.semaphore import SemaphoreStore
 from upath import UPath
 
@@ -148,54 +148,14 @@ def extract_bioproject(key: str, force: bool = False) -> dict:
     return {"key": key, "skipped": False, **meta}
 
 
-def bioproject_to_parquet() -> dict:
-    """Convert BioProject JSONL → parquet via DuckDB. Always runs (cheap)."""
-    input_path = get_duckdb_path("bioproject", "raw", "data.jsonl.gz")
-    output_path = get_duckdb_path("bioproject", "parquet", "bioprojects.parquet")
-    # ponytail: kept as-is by the #155 migration (mechanical: same work, no
-    # orchestrator). Nothing in this repo reads
-    # `{PUBLISH_ROOT}/bioproject/parquet/bioprojects.parquet` any more — the
-    # DuckLake loader reads the JSONL, and the public `bioprojects.parquet`
-    # comes out of `parquet_export` from the lake table. Delete when someone
-    # confirms no external consumer; not this ticket's call.
-    sql = f"""
-        COPY (
-            SELECT
-                trim(title) as title,
-                trim(description) as description,
-                trim(name) as name,
-                trim(accession) as accession,
-                publications,
-                locus_tags,
-                release_date,
-                data_types,
-                external_links
-            FROM read_ndjson_auto(
-                '{input_path}',
-                maximum_object_size = 1000000000
-            )
-        ) TO '{output_path}' (FORMAT PARQUET, COMPRESSION ZSTD);
-    """
-    with get_duckdb_connection() as con:
-        log.info(f"Converting {input_path} to {output_path}")
-        con.execute(sql)
-        row_count = con.execute(
-            f"SELECT count(*) FROM read_parquet('{output_path}')"
-        ).fetchone()[0]
-    log.info(f"Wrote {row_count:,} rows to {output_path}")
-    return {"row_count": row_count, "output_path": output_path}
-
-
 def biosample_extract(force: bool = False) -> dict:
     """Extract today's BioSample full dump (no-op if today's semaphore exists)."""
     return extract_biosample(date.today().isoformat(), force=force)
 
 
 def bioproject_extract(force: bool = False) -> dict:
-    """Extract today's BioProject full dump, then refresh its parquet copy."""
-    result = extract_bioproject(date.today().isoformat(), force=force)
-    bioproject_to_parquet()
-    return result
+    """Extract today's BioProject full dump (no-op if today's semaphore exists)."""
+    return extract_bioproject(date.today().isoformat(), force=force)
 
 
 @click.group()
