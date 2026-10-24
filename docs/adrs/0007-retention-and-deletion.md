@@ -55,6 +55,8 @@ This amends ADR-0004's "past snapshots never deleted". Dated public folders are 
   is the lake's job.
 - Deletion is scripted and dry-run by default. The first `--apply` of any new rule is
   reviewed by a human.
-- The legacy published copies in `r2://omicidx` (`latest/`, `distribution/`,
-  `{sra,geo,pubmed,biosample}/parquet/`, about 114 GiB) are not yet covered and await
-  a separate decision.
+- The legacy published copies in `r2://omicidx` (`latest/`, `distribution/`, `duckdb/`,
+  `{sra,geo,pubmed,biosample,bioproject}/parquet/`, 111 GiB) were deleted on 2026-10-24,
+  together with the legacy `omicidx-render` and `omicidx-data` Worker scripts. The
+  `data-omicidx.cancerdatasci.org` host redirects to `/data/latest/` (#211). The bucket
+  now holds only raw extracts and semaphores.
