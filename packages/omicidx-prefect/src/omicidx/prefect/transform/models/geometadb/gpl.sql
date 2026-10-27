@@ -17,5 +17,6 @@ SELECT
     description,
     'https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=' || accession AS web_link,
     contact."name"."first" || ' ' || contact."name"."last" AS contact,
-    data_row_count
-FROM src.geo_platforms;
+    data_row_count,
+    organism_as_submitted
+FROM stg.geo_platforms;

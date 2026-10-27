@@ -82,12 +82,13 @@ _UPSTREAM_DDL = [
         type VARCHAR[], contributor VARCHAR[], overall_design VARCHAR,
         contact {_CONTACT}, supplemental_files VARCHAR[], sample_id VARCHAR[],
         bioprojects VARCHAR[], sra_studies VARCHAR[], subseries VARCHAR[])""",
-    f"""CREATE TABLE src.geo_platforms (
+    f"""CREATE TABLE stg.geo_platforms (
         title VARCHAR, accession VARCHAR, status VARCHAR, submission_date DATE,
         last_update_date DATE, technology VARCHAR, distribution VARCHAR,
         organism VARCHAR, manufacturer VARCHAR[], manufacture_protocol VARCHAR,
         description VARCHAR, contact {_CONTACT}, data_row_count INTEGER,
-        series_id VARCHAR[])""",
+        series_id VARCHAR[], organism_as_submitted VARCHAR)""",
+    "CREATE TABLE src.geo_platforms (accession VARCHAR, series_id VARCHAR[])",
     "CREATE TABLE src.geo_series_with_rnaseq_counts (accession VARCHAR)",
 ]
 
@@ -231,6 +232,7 @@ EXPECTED = {
         "web_link",
         "contact",
         "data_row_count",
+        "organism_as_submitted",
     },
     # dropped legacy columns that must NOT reappear (always-NULL in modern data)
     "_dropped": {

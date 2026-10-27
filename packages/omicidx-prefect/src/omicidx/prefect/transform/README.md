@@ -62,14 +62,16 @@ plan applies nothing.
 
 GEO renames organisms (following NCBI Taxonomy) without bumping
 `last_update_date`, so names in the lake go stale while taxids stay right. The
-organism-bearing `stg` views (`geo_series`, `geo_samples`, `sra_samples`,
-`biosamples`) are therefore their lake table column for column, with the names
+organism-bearing `stg` views (`geo_series`, `geo_samples`, `geo_platforms`,
+`sra_samples`, `biosamples`) are therefore their lake table column for column, with the names
 replaced by the current scientific name for the record's taxid
 (`stg.ncbi_taxonomy_names`, which follows merged taxids) and the submitted names
 kept in appended `*_as_submitted` columns. An unknown taxid keeps the submitted
-name. `parquet-export` ships those four base files from the `stg` views for the
-same reason (`TAXONOMY_RESOLVED_EXPORTS`). `geo_platforms` has no taxid in the
-lake (the GPL parser drops it), so GPL names stay as submitted.
+name. `parquet-export` ships those five base files from the `stg` views for the
+same reason (`TAXONOMY_RESOLVED_EXPORTS`). `geo_platforms` is resolved the same
+way from its `taxid` list (#231), once every GPL has been re-extracted with it
+(`python -m omicidx.prefect.flows.geo reextract-platforms`); a NULL taxid keeps
+the submitted name.
 
 ## Column lineage (Phase 2, not yet wired)
 
