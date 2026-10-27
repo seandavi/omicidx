@@ -8,7 +8,8 @@ Description=Daily GEO metadata extraction (cadence preserved from daily-pipeline
 OnCalendar=*-*-* 06:00:00 UTC
 RandomizedDelaySec=1800
 # A missed night catches up on next boot. Cheap once the backfill is done:
-# every month with a semaphore is skipped, leaving only the current month.
+# every settled month with a semaphore is skipped, leaving only unsettled
+# months (the current one, plus the previous until 00:00 UTC on the 2nd).
 Persistent=true
 
 [Install]
