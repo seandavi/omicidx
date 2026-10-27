@@ -1,9 +1,9 @@
 """GEO extract: a standalone scheduled EL process (#154, pattern from #153).
 
 Partitions are calendar months (YYYY-MM). Each month gets a semaphore
-under `_semaphores/geo/{YYYY-MM}.json`. By default the extractor processes
-the current month every run (`rerun_current_month=True`) and skips any
-historical month that already has a semaphore.
+under `_semaphores/geo/{YYYY-MM}.json`. A semaphore marks a *settled* month
+(`month_settles_at`): unsettled months -- the current one, and the previous one
+until the 2nd -- re-run every time and get no semaphore (#237).
 
 No orchestrator: run it as `python -m omicidx.prefect.flows.geo run` (that is
 what `systemd/omicidx-geo-extract.service` does), logs go to stdout ->
@@ -44,7 +44,7 @@ import re
 import shutil
 import tempfile
 import time
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import click
 import httpx
@@ -138,6 +138,21 @@ def _month_range(partition_date: date) -> tuple[date, date]:
     start = partition_date.replace(day=1)
     end = (start + relativedelta(months=1)) - timedelta(days=1)
     return start, end
+
+
+#: How long after a month ends before its extract is final. NCBI stamps
+#: `[Update Date]` in US Eastern time and indexes into eutils with some lag, and
+#: the boundary below is UTC midnight, so a search run right at it can still
+#: miss the month's last day. One day clears both. With the 06:00 UTC timer
+#: the previous month is re-extracted on the 1st and on the 2nd, and marked
+#: done on the 2nd (#237).
+MONTH_SETTLE = timedelta(days=1)
+
+
+def month_settles_at(key: str) -> datetime:
+    """UTC instant after which an extract of month `key` (YYYY-MM) is final."""
+    start = datetime.strptime(key, "%Y-%m").replace(tzinfo=UTC)
+    return start + relativedelta(months=1) + MONTH_SETTLE
 
 
 def _entrezid_to_geo(entrezid: str) -> str:
@@ -287,15 +302,16 @@ def _write_ndjson_gz(records: list[dict], path: UPath) -> int:
 def extract_month(key: str, force: bool = False) -> dict:
     """Extract one calendar-month partition of GEO metadata.
 
-    The current month always re-extracts (it accrues records during the month);
-    a past month with a semaphore is skipped unless ``force``.
+    A month re-extracts every run until it settles (`month_settles_at`); only an
+    extract that started after that writes the semaphore, so a semaphore means
+    final. A settled month with a semaphore is skipped unless ``force``.
     """
     sem = SemaphoreStore("geo")
 
-    # "Current month is volatile" is defined in two paired places: GeoSource.
-    # list_partitions keeps it pending (always=[current]); this guard makes it
-    # never skip on a stale semaphore. Change both together.
-    if not force and key != _month_key(date.today()) and sem.exists(key):
+    # "Unsettled months are always pending" is defined in two paired places:
+    # GeoSource.list_partitions keeps them pending; this guard makes them never
+    # skip on a stale semaphore. Change both together.
+    if not force and datetime.now(UTC) >= month_settles_at(key) and sem.exists(key):
         log.info("geo/%s: semaphore exists, skipping", key)
         return {"key": key, "skipped": True}
 
@@ -305,6 +321,8 @@ def extract_month(key: str, force: bool = False) -> dict:
 
     log.info("geo/%s: processing %s to %s", key, start_date, end_date)
 
+    # The search, not completion, decides how complete the month is.
+    queried_at = datetime.now(UTC)
     accessions = asyncio.run(_fetch_accessions(start_date, end_date))
     log.info("geo/%s: %d accessions", key, len(accessions))
 
@@ -340,16 +358,27 @@ def extract_month(key: str, force: bool = False) -> dict:
         counts[prefix] = n
         log.info("geo/%s: wrote %d %s records to %s", key, n, prefix, path)
 
-    sem.mark_done(
-        key,
-        metadata={
-            "start_date": start_date.isoformat(),
-            "end_date": end_date.isoformat(),
-            "accessions": len(accessions),
-            "failed": failed,
-            **counts,
-        },
-    )
+    settles_at = month_settles_at(key)
+    if queried_at >= settles_at:
+        sem.mark_done(
+            key,
+            metadata={
+                "start_date": start_date.isoformat(),
+                "end_date": end_date.isoformat(),
+                "accessions": len(accessions),
+                "failed": failed,
+                **counts,
+            },
+        )
+    else:
+        # Required, not defensive: a semaphore left by older code would make
+        # the month skip forever once it settles (#237).
+        sem.clear(key)
+        log.info(
+            "geo/%s: month not settled until %s; wrote data, no semaphore",
+            key,
+            settles_at,
+        )
     return {"key": key, "skipped": False, "failed": failed, **counts}
 
 
@@ -420,7 +449,7 @@ class GeoSource:
     """GEO metadata, partitioned by calendar month (the ``Source`` protocol).
 
     Hides: the eutils accession search, per-entity SOFT fetch/parse, the
-    NDJSON layout, and the "current month is never done" cursor.
+    NDJSON layout, and the "a month is never done until it settles" cursor.
     """
 
     name = "geo"
@@ -430,23 +459,20 @@ class GeoSource:
         self,
         start_month: str = "2005-01",
         end_month: str | None = None,
-        rerun_current_month: bool = True,
     ) -> None:
         self.start_month = start_month
         self.end_month = end_month
-        self.rerun_current_month = rerun_current_month
 
     def list_partitions(self, force: bool = False) -> list[str]:
         months = _enumerate_months(start=self.start_month, end=self.end_month)
-        current = _month_key(date.today())
-        always = [current] if self.rerun_current_month else []
-        return SemaphoreStore("geo").pending_keys(months, always=always, force=force)
+        now = datetime.now(UTC)
+        unsettled = [k for k in months if month_settles_at(k) > now]
+        return SemaphoreStore("geo").pending_keys(months, always=unsettled, force=force)
 
 
 def geo_extract(
     start_month: str = "2005-01",
     end_month: str | None = None,
-    rerun_current_month: bool = True,
     force: bool = False,
     max_workers: int = MAX_WORKERS,
 ) -> list[dict]:
@@ -454,8 +480,7 @@ def geo_extract(
 
     By default iterates from ``start_month`` to the current month, skipping
     any month whose semaphore exists. Set ``force=True`` to re-extract
-    everything in the range. Set ``rerun_current_month=False`` to also
-    skip the current month if its semaphore exists.
+    everything in the range.
 
     ponytail: `systemd/omicidx-geo-extract.timer` exists but is deliberately not
     installed yet (#174). 2020-07 onward — 74 months — has never been extracted,
@@ -464,11 +489,7 @@ def geo_extract(
     down in the foreground once, then enable the timer.
     """
     return run_extraction(
-        GeoSource(
-            start_month=start_month,
-            end_month=end_month,
-            rerun_current_month=rerun_current_month,
-        ),
+        GeoSource(start_month=start_month, end_month=end_month),
         force=force,
         max_workers=max_workers,
     )
