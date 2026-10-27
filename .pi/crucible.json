@@ -21,6 +21,10 @@
     {
       "name": "test",
       "command": "uv run pytest packages/ -x -q"
+    },
+    {
+      "name": "docs",
+      "command": "quarto render docs && { test -z \"$(git status --porcelain docs/_freeze)\" || { echo 'docs/_freeze is stale: commit the re-rendered docs/_freeze files (CI renders from them and has no R)'; false; }; }"
     }
   ],
   "lenses": {
