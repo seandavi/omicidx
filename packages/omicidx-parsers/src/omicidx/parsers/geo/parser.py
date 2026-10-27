@@ -331,7 +331,7 @@ def _parse_single_entity_soft(entity_txt: list[str]):
         d[tup[0]].append(tup[1])
     d2 = dict(d.items())
     # int fields
-    INT_FIELDS = ["pubmed_id", "sample_taxid", "platform_taxid"]
+    INT_FIELDS = ["pubmed_id", "sample_taxid", "platform_taxid", "taxid"]
     for i in INT_FIELDS:
         if i in d2:
             try:
@@ -485,7 +485,7 @@ def _parse_single_gsm_soft(d2):
 # Parse the GPL entity in SOFT format #
 #######################################
 def _parse_single_gpl_soft(d2):
-    for k in ["technology", "distribution", "organism", "taxid", "data_row_count"]:
+    for k in ["technology", "distribution", "organism", "data_row_count"]:
         try:
             d2[k] = "\n".join(d2[k])
         except KeyError:

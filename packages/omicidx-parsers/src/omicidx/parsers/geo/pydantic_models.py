@@ -38,6 +38,7 @@ class GEOPlatform(GEOBase):
     contact: GEOContact | None = None
     summary: str | None = None
     organism: str | None = None
+    taxid: list[int] = []
     sample_id: list[str] | None = []  # List[constr(regex="GSM[0-9]+")] = []
     series_id: list[str] | None = []  # List[constr(regex="GSE[0-9]+")] = []
     technology: str | None = None
