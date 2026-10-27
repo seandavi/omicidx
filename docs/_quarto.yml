@@ -22,7 +22,7 @@ knitr:
 website:
   title: "OmicIDX"
   site-url: "https://omicidx.cancerdatasci.org"
-  description: "Public, queryable index of NCBI SRA, GEO, BioSample, BioProject, and PubMed metadata, published as Parquet over anonymous HTTPS."
+  description: "Public, queryable index of NCBI SRA, GEO, BioSample, and BioProject metadata, published as Parquet over anonymous HTTPS."
   favicon: favicon.svg
   # The one GA4 property shared by every site (#222).
   google-analytics: "G-KLLV1GCF4E"

@@ -152,6 +152,9 @@ hostage (which is what GEO did for a month — #174).
 | `parquet-export` | `flows/parquet_export.py` | Reverse-ETL: COPY lake tables **and marts** → public Parquet `r2://data-omicidx/latest/*.parquet` + `latest/{sradb,geometadb}/*.parquet` (ADR-0004) |
 | `publish-bundle` | `flows/publish_bundle.py` + `flows/sql.py` | **Thin**: `omicidx.duckdb`/`views.sql` = one `CREATE VIEW` per public Parquet file (base tables + marts, no re-derivation) + `manifest.json`, to `v{date}/` and `latest/` |
 
+PubMed is extracted and loaded into the lake but not published (#236). It moves
+to cdsci-lake (cdsci-lake#136).
+
 - Config: `config.py` (`Settings` + `get_ducklake_connection`, `get_public_parquet_path`, etc.). Key env: `PUBLISH_ROOT`, `DUCKLAKE_URI`, `DUCKLAKE_DATA_PATH`, `PUBLIC_PARQUET_ROOT`, `PUBLIC_PARQUET_HTTPS_BASE`.
 - Catalog topology + MERGE/maintenance conventions: `DUCKLAKE.md`. Public-serving contract: `docs/adrs/0004`.
 - Operator CLI `omicidx-prefect` (`cli.py`) is the ad-hoc/recovery path: every `run` subcommand calls exactly what the matching timer calls, so a stage that failed overnight is re-run by hand (`omicidx-prefect run transform`, `... run publish-bundle`). All stages are idempotent.

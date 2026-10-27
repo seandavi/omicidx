@@ -11,7 +11,7 @@ downloads DuckDB itself, a few MB.
 
 Queries that filter and use `LIMIT` are fast, because DuckDB fetches only the
 parts of each Parquet file it needs. Full scans of the big tables
-(`sra_runs` is 1.7 GB, `biosamples` 7.8 GB, `pubmed_articles` 37 GB) are slow
+(`sra_runs` is 1.7 GB, `biosamples` 7.8 GB) are slow
 and can run out of browser memory. For those, use DuckDB on your own machine
 ([Query with DuckDB](guides/duckdb-snapshot.qmd)).
 

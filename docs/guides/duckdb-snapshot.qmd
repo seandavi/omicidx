@@ -35,7 +35,7 @@ citation](versions-and-citation.qmd) for which to use, and
 
 | Path | What it is |
 |---|---|
-| `<table>.parquet` | One file per source table: `sra_studies`, `sra_samples`, `sra_experiments`, `sra_runs`, `sra_accessions`, `geo_series`, `geo_samples`, `geo_platforms`, `geo_series_with_rnaseq_counts`, `biosamples`, `bioprojects`, `pubmed_articles` |
+| `<table>.parquet` | One file per source table: `sra_studies`, `sra_samples`, `sra_experiments`, `sra_runs`, `sra_accessions`, `geo_series`, `geo_samples`, `geo_platforms`, `geo_series_with_rnaseq_counts`, `biosamples`, `bioprojects` |
 | `sradb/<table>.parquet` | SRAdb-compatible tables |
 | `geometadb/<table>.parquet` | GEOmetadb-compatible tables |
 | `omicidx.duckdb` | A small DuckDB database with a view over every Parquet file |
@@ -85,8 +85,7 @@ WHERE bioproject = 'PRJNA1147303';
 ```
 
 Filters and column selection are pushed down, so only the matching parts of a
-file are fetched. `pubmed_articles.parquet` is about 37 GB, so filter it in
-place.
+file are fetched.
 
 ## SRAdb-compatible tables (`sradb`)
 
@@ -166,7 +165,7 @@ duckdb omicidx-local.duckdb < restore.sql
 duckdb -readonly omicidx-local.duckdb -c "SELECT count(*) FROM sradb.study"
 ```
 
-A full copy is tens of GB, most of it `pubmed_articles` and `biosamples`. In
+A full copy is tens of GB, most of it `biosamples`. In
 R, [`omicidx_download()`](r-omicidxr.qmd#a-local-copy) does the same. To copy
 only a few tables, download their Parquet files and point DuckDB at them:
 

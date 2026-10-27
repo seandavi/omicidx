@@ -48,6 +48,9 @@ def test_card_lists_tables_and_provenance():
     assert "https://data.omicidx.cancerdatasci.org/latest/" in card
     assert "hf://datasets/seandavis/omicidx@2026-10/sra_studies.parquet" in card
     assert "omicidx/omicidx" not in card
+    assert "cdsci-lake/issues/136" in card
+    assert "and PubMed" not in card  # intro source list
+    assert "BioProject, PubMed" not in card  # license provider list
 
 
 def test_card_has_one_config_per_table():

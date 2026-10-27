@@ -1,6 +1,6 @@
 ---
 title: OmicIDX
-description: SRA, GEO, BioSample, BioProject, and PubMed metadata as Parquet files you can query from DuckDB, Python, or R. Rebuilt nightly. No account, no key.
+description: SRA, GEO, BioSample, and BioProject metadata as Parquet files you can query from DuckDB, Python, or R. Rebuilt nightly. No account, no key.
 toc: false
 ---
 
