@@ -53,7 +53,6 @@ EXPORTS: list[tuple[str, str]] = [
     ("sra_experiment", "sra_experiments.parquet"),
     ("sra_run", "sra_runs.parquet"),
     ("sra_accessions", "sra_accessions.parquet"),
-    ("pubmed_article", "pubmed_articles.parquet"),
 ]
 
 # Base files that carry organism names are COPY'd from their SQLMesh stg view

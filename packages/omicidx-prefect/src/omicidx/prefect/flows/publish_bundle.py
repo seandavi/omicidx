@@ -48,7 +48,6 @@ RAW_NAMESPACES = [
     "biosample",
     "bioproject",
     "ebi_biosample",
-    "pubmed",
 ]
 
 

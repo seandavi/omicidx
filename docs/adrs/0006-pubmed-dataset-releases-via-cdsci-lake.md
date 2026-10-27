@@ -28,3 +28,6 @@ existing bundle (`parquet_export`/`publish_bundle`) is untouched; moving it onto
 
 - Reproducibility beyond seven days requires pinning a release.
 - Upstream PubMed update-file diffs remain the only row-level history.
+- 2026-10-27: `pubmed_articles` left the OmicIDX public bundle (#236). This
+  release is now the only copy of PubMed that omicidx produces, until
+  cdsci-lake#136 takes it over.
