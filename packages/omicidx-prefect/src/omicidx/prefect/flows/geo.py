@@ -311,9 +311,15 @@ def extract_month(key: str, force: bool = False) -> dict:
     # "Unsettled months are always pending" is defined in two paired places:
     # GeoSource.list_partitions keeps them pending; this guard makes them never
     # skip on a stale semaphore. Change both together.
-    if not force and datetime.now(UTC) >= month_settles_at(key) and sem.exists(key):
+    settles_at = month_settles_at(key)
+    if not force and datetime.now(UTC) >= settles_at and sem.exists(key):
         log.info("geo/%s: semaphore exists, skipping", key)
         return {"key": key, "skipped": True}
+    if datetime.now(UTC) < settles_at:
+        # Required, not defensive: a semaphore left by older code would make
+        # the month skip forever once it settles (#237). Clear it before the
+        # fetch, so a failed run can't leave it behind either (#238).
+        sem.clear(key)
 
     partition_date = datetime.strptime(key, "%Y-%m").date()
     start_date, end_date = _month_range(partition_date)
@@ -358,7 +364,6 @@ def extract_month(key: str, force: bool = False) -> dict:
         counts[prefix] = n
         log.info("geo/%s: wrote %d %s records to %s", key, n, prefix, path)
 
-    settles_at = month_settles_at(key)
     if queried_at >= settles_at:
         sem.mark_done(
             key,
@@ -371,9 +376,6 @@ def extract_month(key: str, force: bool = False) -> dict:
             },
         )
     else:
-        # Required, not defensive: a semaphore left by older code would make
-        # the month skip forever once it settles (#237).
-        sem.clear(key)
         log.info(
             "geo/%s: month not settled until %s; wrote data, no semaphore",
             key,
@@ -479,7 +481,7 @@ def geo_extract(
     """Extract GEO metadata, one monthly partition at a time.
 
     By default iterates from ``start_month`` to the current month, skipping
-    any month whose semaphore exists. Set ``force=True`` to re-extract
+    any settled month whose semaphore exists. Set ``force=True`` to re-extract
     everything in the range.
 
     ponytail: `systemd/omicidx-geo-extract.timer` exists but is deliberately not

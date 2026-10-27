@@ -178,3 +178,60 @@ def test_geo_source_keeps_unsettled_months_pending_despite_semaphores(
     assert "2020-02" not in pending
     assert "2020-03" in pending
     assert current in pending
+
+
+def _pin_now(monkeypatch, geo, instant):
+    """Pin geo's `datetime.now()`; everything else on datetime is untouched."""
+    from datetime import datetime
+
+    class Pinned(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return instant
+
+    monkeypatch.setattr(geo, "datetime", Pinned)
+
+
+def test_previous_month_stays_unsettled_until_the_2nd(monkeypatch, tmp_path):
+    """#237 itself: on Sep 1 August is still pending and gets no semaphore."""
+    _stub_env(monkeypatch, tmp_path)
+    from datetime import UTC, datetime
+
+    from omicidx.prefect.flows import geo
+    from omicidx.prefect.semaphore import SemaphoreStore
+
+    monkeypatch.setattr(geo, "_fetch_accessions", lambda start, end: _completed([]))
+    source = geo.GeoSource(start_month="2026-08", end_month="2026-09")
+    sem = SemaphoreStore("geo")
+
+    _pin_now(monkeypatch, geo, datetime(2026, 9, 1, 6, tzinfo=UTC))
+    sem.mark_done("2026-08")  # the semaphore the old code wrote mid-month
+    assert "2026-08" in source.list_partitions()
+    geo.extract_month("2026-08")
+    assert not sem.exists("2026-08")
+
+    _pin_now(monkeypatch, geo, datetime(2026, 9, 2, 6, tzinfo=UTC))
+    geo.extract_month("2026-08")
+    assert sem.exists("2026-08")
+    assert "2026-08" not in source.list_partitions()
+
+
+def test_failed_unsettled_extract_leaves_no_semaphore(monkeypatch, tmp_path):
+    """#238: the stale semaphore goes even when the run raises."""
+    _stub_env(monkeypatch, tmp_path)
+    from datetime import UTC, datetime
+
+    from omicidx.prefect.flows import geo
+    from omicidx.prefect.semaphore import SemaphoreStore
+
+    async def boom(start, end):
+        raise RuntimeError("eutils down")
+
+    monkeypatch.setattr(geo, "_fetch_accessions", boom)
+    _pin_now(monkeypatch, geo, datetime(2026, 10, 27, tzinfo=UTC))
+    SemaphoreStore("geo").mark_done("2026-10")
+
+    with pytest.raises(RuntimeError):
+        geo.extract_month("2026-10")
+
+    assert not SemaphoreStore("geo").exists("2026-10")
