@@ -20,7 +20,7 @@ from types import SimpleNamespace
 
 import duckdb
 import pytest
-from omicidx.prefect.flows import sql
+from omicidx.prefect.flows import publish_bundle, sql
 
 
 def test_views_duckdb_reads_public_parquet_anonymously(tmp_path, monkeypatch):
@@ -112,3 +112,12 @@ def test_restore_sql_materializes_and_checks_manifest(tmp_path, monkeypatch):
         duckdb.Error, match="differ from manifest.json: main.bioprojects"
     ):
         local.execute(restore)
+
+
+def test_pubmed_articles_is_not_published():
+    """PubMed left the public release (#236); GEO/SRA keep their PMID columns."""
+    assert all("pubmed" not in file for _, _, file in sql.PUBLIC_VIEWS)
+
+
+def test_manifest_does_not_count_pubmed_raw():
+    assert "pubmed" not in publish_bundle.RAW_NAMESPACES

@@ -135,13 +135,17 @@ configs:
 
 OmicIDX is a regularly refreshed, analysis-ready copy of public genomics
 metadata: NCBI SRA (studies, samples, experiments, runs, accessions), NCBI GEO
-(series, samples, platforms), NCBI and EBI BioSample, BioProject, and PubMed.
+(series, samples, platforms), NCBI and EBI BioSample, and BioProject.
 It also ships the `sradb.*` and `geometadb.*` marts. Everything is plain
 Parquet that any engine can read.
 
 This is the monthly release **`{tag}`**, a verbatim copy of the daily publish
 `v{date}/`. Pin it with the `@{tag}` revision. For the daily-refreshed copy, use
 R2 `latest/` at {LATEST_URL}. Documentation lives at {DOCS_URL}.
+
+PubMed articles (`pubmed_articles.parquet`) were published through release
+`2026-10` and are not in later releases. PubMed is moving to its own dataset
+(https://github.com/seandavi/cdsci-lake/issues/136).
 
 ## Provenance
 
@@ -197,7 +201,7 @@ studies <- arrow::read_parquet(tf)
 ## License
 
 The OmicIDX code is MIT-licensed ({CODE_URL}). The data are redistributed
-from NCBI (SRA, GEO, BioSample, BioProject, PubMed) and EBI (BioSamples) and
+from NCBI (SRA, GEO, BioSample, BioProject) and EBI (BioSamples) and
 remain under those providers' terms of use.
 
 ## Citation
