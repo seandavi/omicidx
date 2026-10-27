@@ -12,7 +12,6 @@ account, no API key, and no server to call. You read the files.
 - **NCBI SRA**: studies, samples, experiments, runs, and the SRA accession table.
 - **NCBI GEO**: series (GSE), samples (GSM), platforms (GPL), and the list of series with NCBI-computed RNA-seq counts.
 - **NCBI BioSample** and **BioProject**: the sample and project records that tie SRA and GEO together.
-- **NCBI PubMed**: citation records, for linking publications to the data they describe.
 
 See [Data sources](data-sources.qmd) for where each comes from and how
 often it refreshes.
