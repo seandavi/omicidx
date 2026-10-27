@@ -64,10 +64,10 @@ caller-supplied metadata (row_count, output_path, etc.).
 - Inspect with `omicidx-prefect semaphores list <namespace>` and
   `omicidx-prefect semaphores show <namespace> <key>`.
 
-The current-period partition (GEO current month, EBI current day) is
-always re-run by default, because upstream data accumulates within the
-period. Pass `rerun_current_month=False` / `rerun_current_day=False`
-to skip even those.
+GEO re-runs any month until a day after it ends, and only then writes its
+semaphore (a GEO semaphore means final). The EBI current day is always re-run
+by default, because upstream data accumulates within the period. Pass
+`rerun_current_day=False` to skip it.
 
 ## Layout
 

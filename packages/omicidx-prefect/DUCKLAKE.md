@@ -57,7 +57,7 @@ namespace/key mirrors the path layout (`omicidx-prefect semaphores list
 | Source | Raw partition | Semaphore namespace | Key | Notes |
 |---|---|---|---|---|
 | SRA | `(entity, date, stage)` mirror file | `sra/<entity>` | `<date>_<stage>` | namespace embeds a slash |
-| GEO | calendar month | `geo` | `<YYYY-MM>` | current month always re-runs |
+| GEO | calendar month | `geo` | `<YYYY-MM>` | re-runs until 1 day after month end; semaphore = final |
 | BioSample | full dump per run | `biosample` | `<date>` | |
 | BioProject | full dump per run | `bioproject` | `<date>` | |
 | EBI BioSample | calendar day | `ebi_biosample` | `<YYYY-MM-DD>` | current day always re-runs |

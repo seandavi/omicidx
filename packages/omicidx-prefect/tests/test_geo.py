@@ -114,3 +114,67 @@ def test_readerror_is_retryable():
             "rate", request=req, response=httpx.Response(429, request=req)
         )
     )
+
+
+def test_month_settles_at_is_one_day_after_month_end():
+    from datetime import UTC, datetime
+
+    from omicidx.prefect.flows.geo import month_settles_at
+
+    assert month_settles_at("2026-08") == datetime(2026, 9, 2, tzinfo=UTC)
+    assert month_settles_at("2026-12") == datetime(2027, 1, 2, tzinfo=UTC)
+
+
+def test_extract_month_writes_no_semaphore_for_an_unsettled_month(
+    monkeypatch, tmp_path
+):
+    """#237: a semaphore from older code must not outlive an unsettled extract."""
+    _stub_env(monkeypatch, tmp_path)
+    from datetime import date
+
+    from omicidx.prefect.flows import geo
+    from omicidx.prefect.semaphore import SemaphoreStore
+
+    monkeypatch.setattr(geo, "_fetch_accessions", lambda start, end: _completed([]))
+    current = geo._month_key(date.today())
+    SemaphoreStore("geo").mark_done(current)
+
+    result = geo.extract_month(current)
+
+    assert result["skipped"] is False
+    assert list(tmp_path.rglob("gse/**/data_0.ndjson.gz"))
+    assert not SemaphoreStore("geo").exists(current)
+
+
+def test_extract_month_marks_a_settled_month_done(monkeypatch, tmp_path):
+    _stub_env(monkeypatch, tmp_path)
+    from omicidx.prefect.flows import geo
+    from omicidx.prefect.semaphore import SemaphoreStore
+
+    monkeypatch.setattr(geo, "_fetch_accessions", lambda start, end: _completed([]))
+
+    geo.extract_month("2020-07")
+
+    assert SemaphoreStore("geo").exists("2020-07")
+    assert geo.extract_month("2020-07") == {"key": "2020-07", "skipped": True}
+
+
+def test_geo_source_keeps_unsettled_months_pending_despite_semaphores(
+    monkeypatch, tmp_path
+):
+    _stub_env(monkeypatch, tmp_path)
+    from datetime import date
+
+    from omicidx.prefect.flows.geo import GeoSource, _month_key
+    from omicidx.prefect.semaphore import SemaphoreStore
+
+    current = _month_key(date.today())
+    for key in ("2020-01", "2020-02", current):
+        SemaphoreStore("geo").mark_done(key)
+
+    pending = GeoSource(start_month="2020-01").list_partitions()
+
+    assert "2020-01" not in pending
+    assert "2020-02" not in pending
+    assert "2020-03" in pending
+    assert current in pending
