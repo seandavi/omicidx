@@ -155,6 +155,16 @@ def month_settles_at(key: str) -> datetime:
     return start + relativedelta(months=1) + MONTH_SETTLE
 
 
+def _raw_path(entity: str, start_date: date) -> UPath:
+    return (
+        get_upath("geo", "raw")
+        / entity
+        / f"year={start_date.strftime('%Y')}"
+        / f"month={start_date.strftime('%m')}"
+        / "data_0.ndjson.gz"
+    )
+
+
 def _entrezid_to_geo(entrezid: str) -> str:
     if entrezid.startswith("2"):
         return re.sub("^20*", "GSE", entrezid)
@@ -170,7 +180,11 @@ def _entrezid_to_geo(entrezid: str) -> str:
     stop=tenacity.stop_after_attempt(8),
     retry=tenacity.retry_if_exception(_is_retryable),
 )
-async def _fetch_accessions(start_date: date, end_date: date) -> list[str]:
+async def _fetch_accessions(
+    start_date: date,
+    end_date: date,
+    etyps: tuple[str, ...] = ("GSM", "GSE", "GPL"),
+) -> list[str]:
     accessions: list[str] = []
     offset = 0
     retmax = 5000
@@ -182,7 +196,7 @@ async def _fetch_accessions(start_date: date, end_date: date) -> list[str]:
                 params={
                     "db": "gds",
                     "term": (
-                        f"(GSM[etyp] OR GSE[etyp] OR GPL[etyp]) AND "
+                        "(" + " OR ".join(f"{e}[etyp]" for e in etyps) + ") AND "
                         f'("{start_date.strftime("%Y/%m/%d")}"[Update Date] : '
                         f'"{end_date.strftime("%Y/%m/%d")}"[Update Date])'
                     ),
@@ -323,7 +337,6 @@ def extract_month(key: str, force: bool = False) -> dict:
 
     partition_date = datetime.strptime(key, "%Y-%m").date()
     start_date, end_date = _month_range(partition_date)
-    output_base = get_upath("geo", "raw")
 
     log.info("geo/%s: processing %s to %s", key, start_date, end_date)
 
@@ -353,13 +366,7 @@ def extract_month(key: str, force: bool = False) -> dict:
         parsed, failed = {"GSE": [], "GSM": [], "GPL": []}, 0
 
     for prefix, entity in [("GSE", "gse"), ("GSM", "gsm"), ("GPL", "gpl")]:
-        path = (
-            output_base
-            / entity
-            / f"year={start_date.strftime('%Y')}"
-            / f"month={start_date.strftime('%m')}"
-            / "data_0.ndjson.gz"
-        )
+        path = _raw_path(entity, start_date)
         n = _write_ndjson_gz(parsed[prefix], path)
         counts[prefix] = n
         log.info("geo/%s: wrote %d %s records to %s", key, n, prefix, path)
@@ -382,6 +389,35 @@ def extract_month(key: str, force: bool = False) -> dict:
             settles_at,
         )
     return {"key": key, "skipped": False, "failed": failed, **counts}
+
+
+def reextract_platforms(
+    start_month: str = "2005-01", end_month: str | None = None
+) -> dict[str, int]:
+    """Re-fetch every GPL and rewrite each month's gpl/ file (#231).
+
+    Same search, fetch, parse and failure guard as `extract_month`, limited to
+    GPL[etyp]. GSE/GSM files and semaphores are untouched. Returns
+    {month key: GPLs written}.
+    """
+    counts: dict[str, int] = {}
+    for key in _enumerate_months(start_month, end_month):
+        start_date, end_date = _month_range(datetime.strptime(key, "%Y-%m").date())
+        accessions = asyncio.run(
+            _fetch_accessions(start_date, end_date, etyps=("GPL",))
+        )
+        if accessions:
+            parsed, failed = asyncio.run(_fetch_and_parse(accessions))
+            if failed > len(accessions) * MAX_FETCH_FAILURE_RATE:
+                raise RuntimeError(
+                    f"geo/{key}: {failed}/{len(accessions)} GPLs failed to fetch "
+                    f"(> {MAX_FETCH_FAILURE_RATE:.0%}); not rewriting the month"
+                )
+        else:
+            parsed, failed = {"GPL": []}, 0
+        counts[key] = _write_ndjson_gz(parsed["GPL"], _raw_path("gpl", start_date))
+        log.info("geo/%s: re-extracted %d GPLs (%d failed)", key, counts[key], failed)
+    return counts
 
 
 # ---------------------------------------------------------------------------
@@ -497,6 +533,22 @@ def geo_extract(
     )
 
 
+def _configure_logging() -> None:
+    # force=True stays even though the prefect import that made it necessary is
+    # gone (#158). It was not cargo cult: `PrefectConsoleHandler` on the root
+    # logger turned `basicConfig()` into a silent no-op, and a month extracted
+    # perfectly while logging nothing to journald. Any third-party import can
+    # do that again, and the failure is invisible until you need the logs.
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        force=True,
+    )
+    # httpx logs one INFO line per request; a month is ~62k requests, so at
+    # INFO this unit alone would write ~5M lines/night into journald.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+
+
 @click.group()
 def cli() -> None:
     """GEO raw extraction (`python -m omicidx.prefect.flows.geo run`)."""
@@ -511,19 +563,7 @@ def run_command(
     start_month: str, end_month: str | None, force: bool, max_workers: int
 ) -> None:
     """Extract every pending GEO monthly partition."""
-    # force=True stays even though the prefect import that made it necessary is
-    # gone (#158). It was not cargo cult: `PrefectConsoleHandler` on the root
-    # logger turned `basicConfig()` into a silent no-op, and a month extracted
-    # perfectly while logging nothing to journald. Any third-party import can
-    # do that again, and the failure is invisible until you need the logs.
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-        force=True,
-    )
-    # httpx logs one INFO line per request; a month is ~62k requests, so at
-    # INFO this unit alone would write ~5M lines/night into journald.
-    logging.getLogger("httpx").setLevel(logging.WARNING)
+    _configure_logging()
     results = geo_extract(
         start_month=start_month,
         end_month=end_month,
@@ -535,6 +575,18 @@ def run_command(
     click.echo(
         f"geo: {len(extracted)} months extracted "
         f"({len(results) - len(extracted)} skipped), {rows:,} records"
+    )
+
+
+@cli.command("reextract-platforms")
+@click.option("--start-month", default="2005-01", show_default=True)
+@click.option("--end-month", default=None, help="Defaults to the current month.")
+def reextract_platforms_command(start_month: str, end_month: str | None) -> None:
+    """Re-fetch every GEO platform (GPL) and rewrite the monthly gpl/ files."""
+    _configure_logging()
+    counts = reextract_platforms(start_month, end_month)
+    click.echo(
+        f"geo: {sum(counts.values()):,} platforms re-extracted over {len(counts)} months"
     )
 
 

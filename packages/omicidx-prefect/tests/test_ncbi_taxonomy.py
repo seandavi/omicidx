@@ -76,6 +76,17 @@ def test_stg_views_resolve_organism_names_by_taxid():
         "{'label': 'b', 'taxid': [999], 'organism': 'Old name'}])) "
         "t(accession, channels)"
     )
+    # Single resolved, merged, multi-organism with an unknown taxid, NULL taxid
+    # (not yet re-extracted) and a taxid/organism length mismatch (#231).
+    con.execute(
+        "CREATE TABLE src.geo_platforms AS SELECT * FROM (VALUES "
+        "('GPL1', 'Haemophilus parainfluenzae', [729]), "
+        "('GPL2', 'Old name', [999]), "
+        "('GPL3', 'Nannochloropsis gaditana' || chr(10) || 'y', [72520, 5]), "
+        "('GPL4', 'Kept', NULL::BIGINT[]), "
+        "('GPL5', 'a' || chr(10) || 'b', [729])) "
+        "t(accession, organism, taxid)"
+    )
     con.execute(
         "CREATE TABLE src.sra_samples AS SELECT * FROM (VALUES "
         "('SRS1', 'Haemophilus parainfluenzae', 729), ('SRS2', 'z', 5)) "
@@ -90,6 +101,7 @@ def test_stg_views_resolve_organism_names_by_taxid():
         "ncbi_taxonomy_names",
         "geo_series",
         "geo_samples",
+        "geo_platforms",
         "sra_samples",
         "biosamples",
     ):
@@ -127,6 +139,24 @@ def test_stg_views_resolve_organism_names_by_taxid():
         ],
         ["Nannochloropsis gaditana\ny", "Old name"],
     )
+    assert con.execute(
+        "SELECT accession, organism, organism_as_submitted "
+        "FROM stg.geo_platforms ORDER BY accession"
+    ).fetchall() == [
+        (
+            "GPL1",
+            "Parahaemophilus parainfluenzae",
+            "Haemophilus parainfluenzae",
+        ),
+        ("GPL2", "Parahaemophilus parainfluenzae", "Old name"),
+        (
+            "GPL3",
+            "Microchloropsis gaditana\ny",
+            "Nannochloropsis gaditana\ny",
+        ),
+        ("GPL4", "Kept", "Kept"),
+        ("GPL5", "a\nb", "a\nb"),
+    ]
     assert con.execute(
         "SELECT * FROM stg.sra_samples ORDER BY accession"
     ).fetchall() == [

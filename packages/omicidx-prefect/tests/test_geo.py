@@ -235,3 +235,45 @@ def test_failed_unsettled_extract_leaves_no_semaphore(monkeypatch, tmp_path):
         geo.extract_month("2026-10")
 
     assert not SemaphoreStore("geo").exists("2026-10")
+
+
+def test_reextract_platforms_rewrites_only_gpl_files(monkeypatch, tmp_path):
+    """The GPL-only re-extract (#231) writes gpl/ with taxid, nothing else."""
+    _stub_env(monkeypatch, tmp_path)
+    import gzip
+
+    import orjson
+    from omicidx.prefect.flows import geo
+    from omicidx.prefect.semaphore import SemaphoreStore
+
+    etyps_seen = []
+
+    def fake_accessions(start, end, etyps=("GSM", "GSE", "GPL")):
+        etyps_seen.append(etyps)
+        return _completed(["GPL1"])
+
+    async def fake_fetch_soft(acc, client):
+        return (
+            f"^PLATFORM = {acc}\n"
+            "!Platform_title = t\n"
+            f"!Platform_geo_accession = {acc}\n"
+            "!Platform_status = Public on Jan 01 2020\n"
+            "!Platform_submission_date = Jan 01 2020\n"
+            "!Platform_last_update_date = Jan 01 2020\n"
+            "!Platform_organism = Homo sapiens\n"
+            "!Platform_taxid = 9606\n"
+        )
+
+    monkeypatch.setattr(geo, "_fetch_accessions", fake_accessions)
+    monkeypatch.setattr(geo, "_fetch_soft", fake_fetch_soft)
+
+    assert geo.reextract_platforms("2020-07", "2020-07") == {"2020-07": 1}
+
+    assert etyps_seen == [("GPL",)]
+    raw = tmp_path / "geo" / "raw"
+    path = raw / "gpl" / "year=2020" / "month=07" / "data_0.ndjson.gz"
+    with gzip.open(path) as f:
+        (record,) = [orjson.loads(line) for line in f]
+    assert record["taxid"] == [9606]
+    assert sorted(p.name for p in raw.iterdir()) == ["gpl"]
+    assert not SemaphoreStore("geo").exists("2020-07")

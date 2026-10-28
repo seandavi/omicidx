@@ -66,6 +66,7 @@ TAXONOMY_RESOLVED_EXPORTS: dict[str, str] = {
     "biosample": "biosamples",
     "geo_series": "geo_series",
     "geo_sample": "geo_samples",
+    "geo_platform": "geo_platforms",
     "sra_sample": "sra_samples",
 }
 

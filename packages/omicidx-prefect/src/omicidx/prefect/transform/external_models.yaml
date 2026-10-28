@@ -53,6 +53,7 @@
     contributor: STRUCT("first" TEXT, middle TEXT, "last" TEXT)[]
     relation: TEXT[]
     manufacture_protocol: TEXT
+    taxid: BIGINT[]
   gateway: lake
 - name: '"lake"."omicidx"."geo_sample"'
   columns:

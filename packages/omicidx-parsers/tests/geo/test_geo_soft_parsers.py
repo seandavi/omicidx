@@ -94,6 +94,42 @@ def test_iter_soft_entities_parses_fields():
     assert series.title == "eye-SAGE"
 
 
+def test_iter_soft_entities_platform_taxid():
+    entities = list(geo_parser.iter_soft_entities(_load_soft("GSE10.soft")))
+    gpl = next(e for e in entities if e.accession == "GPL4")
+    assert gpl.taxid == [9606]
+    assert gpl.organism == "Homo sapiens"
+
+
+def _gpl(*lines: str) -> pydantic_models.GEOPlatform:
+    text = "\n".join(
+        [
+            "^PLATFORM = GPL1",
+            "!Platform_title = t",
+            "!Platform_geo_accession = GPL1",
+            "!Platform_status = Public on Jan 01 2020",
+            "!Platform_submission_date = Jan 01 2020",
+            "!Platform_last_update_date = Jan 01 2020",
+            *lines,
+        ]
+    )
+    (gpl,) = geo_parser.iter_soft_entities(text)
+    return gpl
+
+
+def test_parse_gpl_taxid_multi_and_missing():
+    multi = _gpl(
+        "!Platform_organism = Homo sapiens",
+        "!Platform_taxid = 9606",
+        "!Platform_organism = Mus musculus",
+        "!Platform_taxid = 10090",
+    )
+    assert multi.taxid == [9606, 10090]
+    assert multi.organism == "Homo sapiens\nMus musculus"
+    assert _gpl("!Platform_organism = Homo sapiens").taxid == []
+    assert _gpl("!Platform_taxid = abc").taxid == []
+
+
 def test_iter_soft_entities_skips_unknown_type():
     # An entity type that is not SERIES/SAMPLE/PLATFORM is silently skipped.
     text = "^DATABASE = GeoDB\n!Database_name = foo\n"

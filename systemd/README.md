@@ -194,5 +194,15 @@ systemd-run --user --unit=omicidx-geo-reextract -p WorkingDirectory=$PWD \
   --force --start-month 2005-01 --end-month 2020-06
 ```
 
+To re-fetch every GPL after a GPL parser change (#231), take the same lock and
+run the GPL-only command, which rewrites only the `gpl/` month files and writes
+no semaphores:
+
+```bash
+systemd-run --user --unit=omicidx-geo-reextract-gpl -p WorkingDirectory=$PWD \
+  -p EnvironmentFile=$PWD/.env /usr/bin/flock /run/user/$UID/omicidx-geo.lock \
+  ~/.local/bin/uv run python -m omicidx.prefect.flows.geo reextract-platforms
+```
+
 Copy, don't symlink: symlinked units go dangling when a repo moves, and systemd
 then fails to load them silently (this is exactly how `omicidx-sql-runner` died).

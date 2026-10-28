@@ -4,7 +4,8 @@ Three tasks cover the three GEO entity types:
 
 - geo_series_to_ducklake   → lake.<schema>.geo_series   (key: accession)
 - geo_sample_to_ducklake   → lake.<schema>.geo_sample   (key: accession)
-- geo_platform_to_ducklake → lake.<schema>.geo_platform (key: accession)
+- geo_platform_to_ducklake → lake.<schema>.geo_platform (key: accession; carries
+  ``taxid BIGINT[]``, appended last -- #231)
 
 Source paths (raw-direct)
 =========================
@@ -154,6 +155,7 @@ SELECT * EXCLUDE (rn) FROM (
         contributor,
         relation,
         trim(manufacture_protocol) AS manufacture_protocol,
+        CAST(taxid AS BIGINT[]) AS taxid,
         row_number() OVER (
             PARTITION BY trim(accession) ORDER BY last_update_date DESC NULLS LAST
         ) AS rn
@@ -165,6 +167,14 @@ SELECT * EXCLUDE (rn) FROM (
     WHERE accession IS NOT NULL AND trim(accession) <> ''
 ) WHERE rn = 1
 """
+
+# #231 added taxid. `upsert` creates a table but never alters one, and its MERGE
+# is positional, so an existing geo_platform gets the column appended here (a
+# no-op once it exists; IF EXISTS covers a fresh lake, which upsert creates
+# with taxid already last).
+_GEO_PLATFORM_ADD_TAXID = (
+    "ALTER TABLE IF EXISTS {target} ADD COLUMN IF NOT EXISTS taxid BIGINT[]"
+)
 
 # ---------------------------------------------------------------------------
 # Shared merge helper (avoids repeating the log/return boilerplate)
@@ -244,6 +254,9 @@ def geo_platform_to_ducklake(lake_schema: str = LAKE_SCHEMA) -> dict:
     files are empty; without it DuckDB returns only a ``json`` column.
     """
     raw = get_duckdb_path("geo", "raw", "gpl", "**", "*.ndjson.gz")
+    target = f"lake.{lake_schema}.geo_platform"
+    with get_lake_connection() as con:
+        con.execute(_GEO_PLATFORM_ADD_TAXID.format(target=target))
     return _merge_geo(
         entity="geo_platform",
         table="geo_platform",
