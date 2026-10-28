@@ -399,13 +399,13 @@ def _parse_run_qualities(node: etree.Element) -> dict:
 
 
 def _parse_taxon(node: etree.Element | None) -> dict:
-    """Parse taxonomy informaiton."""
+    """Parse taxonomy information."""
 
     def crawl(node, d=None):
         if d is None:
             d = []
         for i in node:
-            rank = i.get("rank", "Unkown")
+            rank = i.get("rank", "Unknown")
             parent = None
             if node.get("tax_id") is not None:
                 parent = int(node.get("tax_id"))
