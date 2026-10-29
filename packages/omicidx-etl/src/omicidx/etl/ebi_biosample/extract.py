@@ -17,7 +17,7 @@ from .schema import get_biosample_schema
 logger = get_logger(__name__)
 
 
-CONCURRENCY_LIMIT = 4  # Limit to 20 concurrent tasks
+CONCURRENCY_LIMIT = 4
 
 BASEURL = "https://www.ebi.ac.uk/biosamples/samples"
 
@@ -249,7 +249,7 @@ async def main(output_directory: UPath):
     # Extract up to yesterday to avoid partial day data
     yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
     end = yesterday
-    semaphore = anyio.Semaphore(CONCURRENCY_LIMIT)  # Limit to 20 concurrent tasks
+    semaphore = anyio.Semaphore(CONCURRENCY_LIMIT)
 
     logger.info(f"Starting EBI Biosample extraction from {start} to {end}")
     logger.info("Extracting up to yesterday to ensure complete days")
@@ -265,7 +265,6 @@ async def main(output_directory: UPath):
                 / f"month={start_date.month:02d}"
                 / f"day={start_date.day:02d}"
             )
-            output_path / "data_0.parquet"
             output_semaphore = output_path / "data_0.parquet.done"
             if not output_semaphore.exists():  # Only process if not already done
                 logger.info(f"Scheduling processing for {start_date} to {end_date}")

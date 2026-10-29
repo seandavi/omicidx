@@ -3,6 +3,7 @@ import gzip
 import re
 import shutil
 import tempfile
+import time
 from datetime import date, datetime, timedelta
 
 import anyio
@@ -19,8 +20,6 @@ from tenacity import retry
 from upath import UPath
 
 logger = get_logger(__name__)
-
-faulthandler.enable()
 
 
 @retry(
@@ -278,8 +277,6 @@ def gse_with_rna_seq_counts() -> pl.DataFrame:
             if len(json_results["esearchresult"]["idlist"]) < RETMAX:
                 break
             offset += 5000
-            import time
-
             time.sleep(0.5)  # to avoid hitting the rate limit
     # list of string GSE_ACCESSIONs
     return pl.DataFrame({"accession": gses_with_rna_seq_counts})
@@ -392,6 +389,7 @@ def geo():
 @click.argument("output_base", required=False, default=None)
 def extract(output_base: str | None):
     """Extract GEO metadata."""
+    faulthandler.enable()
     from omicidx.etl.config import settings
 
     base = UPath(output_base) if output_base else settings.publish_directory

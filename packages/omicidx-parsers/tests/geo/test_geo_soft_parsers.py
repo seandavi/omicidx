@@ -209,7 +209,7 @@ def test_split_geo_name_full():
 
 def test_split_geo_name_first_last():
     result = geo_parser._split_geo_name("Jane,Doe")
-    assert result == {"first": "Jane", "middle": "Doe"}
+    assert result == {"first": "Jane", "last": "Doe"}
 
 
 def test_split_contributor_names_empty():

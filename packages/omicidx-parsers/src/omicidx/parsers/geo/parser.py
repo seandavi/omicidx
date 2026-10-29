@@ -79,7 +79,7 @@ def get_geo_accessions(
     webenv = search_results["WebEnv"]
     query_key = search_results["QueryKey"]
     count = int(search_results["Count"])
-    logging.info(f"found {count} records for {etyp} database")
+    logger.info(f"found {count} records for {etyp} database")
     n = 0
     for start in range(0, count, batch_size):
 
@@ -156,7 +156,7 @@ def get_geo_accession_soft(
     >>> handle = get_geo_accession_soft('GSE2553')
     >>> handle.readlines()
     """
-    logging.info(f"Accessing accession {accession} in SOFT format")
+    logger.info(f"Accessing accession {accession} in SOFT format")
     url = f"https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?targ={targ}&acc={accession}&form=text&view={view}"
 
     @retry(
@@ -201,7 +201,7 @@ def get_geo_entities(txt):
     -------
     A dict of entities keyed by accession and values a list of txt lines
     """
-    logging.info("Parsing out geo entities")
+    logger.info("Parsing out geo entities")
     entities = {}
     accession = None
     entity = []
@@ -213,7 +213,7 @@ def get_geo_entities(txt):
             entity = []
         entity.append(line)
     entities[accession] = entity
-    logging.info(f"found {len(entities.keys())}")
+    logger.info(f"found {len(entities.keys())}")
     return entities
 
 
@@ -283,8 +283,10 @@ def get_channel_characteristics(d: dict, ch: int) -> dict:
 
 
 def _split_geo_name(v: str) -> dict[str, str]:
-    """split name of form first,middle,last into dict"""
-    return dict(zip(["first", "middle", "last"], v.split(","), strict=False))
+    """split name of form first,middle,last (or first,last) into dict"""
+    parts = v.split(",")
+    keys = ["first", "last"] if len(parts) == 2 else ["first", "middle", "last"]
+    return dict(zip(keys, parts, strict=False))
 
 
 def _create_contact_from_parsed(d: dict) -> dict:
@@ -622,12 +624,12 @@ def bulk_gse_to_json(term, outfile="/dev/stdout"):
     """
     for gse in get_geo_accessions(add_term=term):
         if outfile is not None:
-            logging.info(f"writing accession {gse}")
+            logger.info(f"writing accession {gse}")
             res = gse_to_json(gse)
             if res is not None:
                 outfile.write(res + "\n")
             else:
-                logging.warning(f"Accession {gse} not found, it appears.")
+                logger.warning(f"Accession {gse} not found, it appears.")
 
 
 def gse_accessions(term, outfile="/dev/stdout"):
@@ -650,6 +652,6 @@ def gse_accessions(term, outfile="/dev/stdout"):
         for gse in get_geo_accessions(add_term=term, batch_size=1000):
             n += 1
             if n % 5000 == 0:
-                logging.info(f"Processed {n} records")
+                logger.info(f"Processed {n} records")
             ofile.write(gse + "\n")
-        logging.info(f"Processed {n} records")
+        logger.info(f"Processed {n} records")
