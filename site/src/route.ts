@@ -26,3 +26,13 @@ export function route(url: URL): Route {
   }
   return { kind: "docs" };
 }
+
+/**
+ * Workers static assets answer old pretty URLs (`/guides/x/`) with a 307 to
+ * the canonical path. Those moves are permanent, so send a 301: search
+ * engines pass link equity and clients may cache it.
+ */
+export function permanentRedirect(res: Response): Response {
+  if (res.status !== 307) return res;
+  return new Response(null, { status: 301, headers: res.headers });
+}

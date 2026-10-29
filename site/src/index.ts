@@ -1,7 +1,7 @@
 import { logUsage } from "./analytics";
-import { conditionalHeaders } from "./conditional";
+import { conditionalHeaders, failedConditionStatus } from "./conditional";
 import { listDirectory } from "./listing";
-import { route } from "./route";
+import { permanentRedirect, route } from "./route";
 import { parseRange } from "./range";
 
 export interface Env {
@@ -35,7 +35,9 @@ export default {
     ctx: ExecutionContext,
   ): Promise<Response> {
     const target = route(new URL(request.url));
-    if (target.kind === "docs") return env.ASSETS.fetch(request);
+    if (target.kind === "docs") {
+      return permanentRedirect(await env.ASSETS.fetch(request));
+    }
 
     if (request.method === "OPTIONS") {
       return new Response(null, { status: 204, headers: CORS_HEADERS });
@@ -78,7 +80,8 @@ export default {
     const rangeHeader = request.headers.get("range");
 
     // Build R2GetOptions
-    const options: R2GetOptions = { onlyIf: conditionalHeaders(request.headers) };
+    const onlyIf = conditionalHeaders(request.headers);
+    const options: R2GetOptions = { onlyIf };
 
     if (rangeHeader) {
       // We need total size to resolve open-ended ranges. Use a HEAD first
@@ -108,12 +111,13 @@ export default {
       });
     }
 
-    // R2 may return R2Object (no body, conditional 304) when onlyIf fails
+    // R2 returns an R2Object (no body) when onlyIf fails
     if (!("body" in object)) {
       const obj = object as R2Object;
-      ctx.waitUntil(logUsage(env, request, key, 304, 0));
+      const status = failedConditionStatus(onlyIf, obj.httpEtag, obj.uploaded);
+      ctx.waitUntil(logUsage(env, request, key, status, 0));
       return new Response(null, {
-        status: 304,
+        status,
         headers: {
           etag: obj.httpEtag,
           ...CORS_HEADERS,

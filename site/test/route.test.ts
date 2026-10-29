@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { route } from "../src/route.ts";
+import { permanentRedirect, route } from "../src/route.ts";
 
 const at = (u: string) => route(new URL(u));
 
@@ -46,4 +46,12 @@ test("legacy host (#211): basename for the /data/latest/ redirect", () => {
   );
   assert.deepEqual(at("https://data-omicidx.cancerdatasci.org/"), legacy(""));
   assert.deepEqual(at("https://data-omicidx.cancerdatasci.org/geo/"), legacy(""));
+});
+
+test("permanentRedirect: assets' trailing-slash 307 becomes a 301 (#233)", () => {
+  const r = permanentRedirect(new Response(null, { status: 307, headers: { location: "/guides/x" } }));
+  assert.equal(r.status, 301);
+  assert.equal(r.headers.get("location"), "/guides/x");
+  const ok = new Response("hi");
+  assert.equal(permanentRedirect(ok), ok);
 });
