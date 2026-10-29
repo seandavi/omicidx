@@ -180,6 +180,32 @@ Snapshots written by the downstream chain carry `run_id` in their
 for any snapshot you find in the lake. (Snapshots written before #158 carry
 `prefect_run_id` instead; those ids are gone with the server.)
 
+## Logs in ClickHouse
+
+Nothing here sets this up, and no unit needs changes for it. Vector (monode
+`infrastructure/compose/vector/vector.yaml`, `systemd_user_journal` source)
+reads the host journal and ships every `systemd --user` service's lines into
+the ClickHouse table `systemd_user_jobs`. That table has `unit`,
+`invocation_id`, `level`, `message`, `job_result` and `timestamp` columns, and
+includes systemd's own `Failed to start …` lines (#165). The platform doc is
+monode `infrastructure/TELEMETRY.md`. `invocation_id` is the same id as a
+snapshot's `run_id`, so the lake → log join works there too.
+
+```sql
+-- errors from the last week
+SELECT timestamp, unit, message FROM systemd_user_jobs
+WHERE unit LIKE 'omicidx-%' AND level IN ('ERROR', 'CRITICAL')
+  AND timestamp > now() - INTERVAL 7 DAY ORDER BY timestamp DESC;
+
+-- heartbeat: units silent for longer than their schedule
+-- (26 h fits the nightly ones; weekly units such as
+-- ducklake-maintenance and ncbi-taxonomy need about 8 days,
+-- the monthly hf-release about 32)
+SELECT unit, max(timestamp) AS last_line FROM systemd_user_jobs
+WHERE unit LIKE 'omicidx-%' GROUP BY unit
+HAVING last_line < now() - INTERVAL 26 HOUR;
+```
+
 ## GEO: never stack two extracts
 
 The 74-month backlog drained 2026-08-17 (#174), so a normal night is minutes.
