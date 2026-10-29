@@ -136,9 +136,12 @@ on an extract: the chain loads whatever raw is on R2 when it starts. That is
 the point of #149 — under the old single `daily-pipeline` flow, GEO's crawl
 held the publish hostage for a month.
 
-GEO's timer is committed but not installed: 74 months (2020-07 onward) have
-never been extracted, and that ~27h backlog needs one foreground run first
-(#174). Run it by hand with `omicidx-prefect run geo`; it is resumable.
+GEO's timer is installed (#190). The 2020-07..2026-08 backlog drained
+2026-08-17, and every earlier month (2005-01..2020-06) was `--force`
+re-extracted 2026-10-20/21 (#174). Every settled month now has a semaphore
+that records its fetch failures, and `extract_month` refuses to write a month
+whose fetch loss is over 2%. Any manual re-extract must take
+`%t/omicidx-geo.lock`, the same lock the timer holds.
 
 ## Environment variables
 
