@@ -15,7 +15,12 @@ from datetime import datetime
 from pathlib import Path
 
 from omicidx.prefect.config import get_duckdb_connection, get_upath, settings
-from omicidx.prefect.flows.parquet_export import EXPORTS, MART_EXPORTS
+from omicidx.prefect.flows.ducklake import LAKE_SCHEMA
+from omicidx.prefect.flows.parquet_export import (
+    EXPORTS,
+    MART_EXPORTS,
+    TAXONOMY_RESOLVED_EXPORTS,
+)
 from omicidx.prefect.run import retry
 
 log = logging.getLogger(__name__)
@@ -26,6 +31,15 @@ MART_SCHEMAS = sorted({schema for schema, _ in MART_EXPORTS})
 PUBLIC_VIEWS: list[tuple[str, str, str]] = [
     ("main", filename.removesuffix(".parquet"), filename) for _, filename in EXPORTS
 ] + [(schema, table, f"{schema}/{table}.parquet") for schema, table in MART_EXPORTS]
+# Lake table/view each public file is COPY'd from (parquet_export), by file.
+SOURCES: dict[str, str] = {
+    filename: (
+        f"stg.{TAXONOMY_RESOLVED_EXPORTS[lake_table]}"
+        if lake_table in TAXONOMY_RESOLVED_EXPORTS
+        else f"{LAKE_SCHEMA}.{lake_table}"
+    )
+    for lake_table, filename in EXPORTS
+} | {f"{schema}/{table}.parquet": f"{schema}.{table}" for schema, table in MART_EXPORTS}
 
 
 def _folder_url(folder: str) -> str:
@@ -96,7 +110,8 @@ def restore_sql(folder: str = "latest") -> str:
 def build_duckdb_local(db_file: str = DB_FILE, folder: str = "latest") -> dict:
     """Build omicidx.duckdb locally from the public Parquet in ``folder``; no upload.
 
-    Returns the local db path, per-table summaries, and the views.sql text.
+    Returns the local db path, per-table summaries, the views.sql text, and the
+    data dictionary (#130): every view's columns, as DuckDB ``DESCRIBE``s them.
     Callers own the upload target (the bundle publisher uploads it into the
     bundle).
     """
@@ -105,6 +120,7 @@ def build_duckdb_local(db_file: str = DB_FILE, folder: str = "latest") -> dict:
         db_path.unlink()
 
     summaries: list[dict] = []
+    dictionary: list[dict] = []
     con = get_duckdb_connection(database=db_file)
     try:
         stmts = _view_statements(folder)
@@ -115,7 +131,17 @@ def build_duckdb_local(db_file: str = DB_FILE, folder: str = "latest") -> dict:
         con.execute("DROP TABLE IF EXISTS db_creation_metadata")
         con.execute("CREATE TABLE db_creation_metadata AS SELECT now() AS created_at")
 
-        for schema, table, _ in PUBLIC_VIEWS:
+        for schema, table, file in PUBLIC_VIEWS:
+            columns = con.execute(f"DESCRIBE {schema}.{table}").fetchall()
+            dictionary.append(
+                {
+                    "schema": schema,
+                    "table": table,
+                    "file": file,
+                    "source": f"lake.{SOURCES[file]}",
+                    "columns": [{"name": c[0], "type": c[1]} for c in columns],
+                }
+            )
             try:
                 count = con.execute(
                     f"SELECT COUNT(*) FROM {schema}.{table}"
@@ -133,6 +159,7 @@ def build_duckdb_local(db_file: str = DB_FILE, folder: str = "latest") -> dict:
         "db_path": db_path,
         "summaries": summaries,
         "views_sql": views_sql(folder),
+        "dictionary": dictionary,
         "total_rows": sum(s["row_count"] for s in summaries if s["row_count"] > 0),
     }
 

@@ -1,0 +1,84 @@
+---
+title: Data dictionary
+description: Every column of every OmicIDX table and mart, with its DuckDB type and the lake table it comes from.
+toc: false
+---
+
+Every published table's columns and types, read live from the
+`data-dictionary.json` that ships with each release. The nightly build writes it
+by running `DESCRIBE` on every view, so it always matches the Parquet. **Source**
+is the internal lake table or view the file was exported from.
+
+Filter by table or column name, for example `bioproject` to find the columns you
+can join on.
+
+::: {#dictionary}
+Loading the data dictionary…
+:::
+
+```{=html}
+<script>
+(() => {
+  const DATA = "https://omicidx.cancerdatasci.org/data/latest/";
+  const root = document.getElementById("dictionary");
+
+  const el = (tag, attrs = {}, ...children) => {
+    const e = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+    e.append(...children);
+    return e;
+  };
+  const name = (t) => (t.schema === "main" ? t.table : `${t.schema}.${t.table}`);
+
+  function table(t) {
+    const rows = t.columns.map((c) =>
+      el("tr", { "data-column": c.name.toLowerCase() },
+        el("td", {}, el("code", {}, c.name)), el("td", {}, el("code", {}, c.type))));
+    return el("details", { class: "mb-2", "data-table": name(t).toLowerCase() },
+      el("summary", {}, el("strong", {}, el("code", {}, name(t))), ` · ${t.columns.length} columns`),
+      el("div", { class: "ps-3" },
+        el("p", { class: "small" }, "File ", el("a", { href: DATA + t.file }, t.file),
+          " · source ", el("code", {}, t.source)),
+        el("div", { class: "table-responsive" },
+          el("table", { class: "table table-sm" },
+            el("thead", {}, el("tr", {},
+              el("th", { scope: "col" }, "Column"), el("th", { scope: "col" }, "Type"))),
+            el("tbody", {}, ...rows)))));
+  }
+
+  // Shows tables whose name matches, or whose columns do (and only those
+  // columns, opened); an empty filter shows everything, closed.
+  function filter(sections, q) {
+    for (const d of root.querySelectorAll("details")) {
+      const rows = [...d.querySelectorAll("tbody tr")];
+      const byTable = d.dataset.table.includes(q);
+      const hits = rows.filter((r) => r.dataset.column.includes(q));
+      for (const r of rows) r.hidden = !(byTable || !q || hits.includes(r));
+      d.hidden = q && !byTable && !hits.length;
+      d.open = Boolean(q) && !byTable && hits.length > 0;
+    }
+    for (const s of sections) s.hidden = !s.querySelector("details:not([hidden])");
+  }
+
+  async function main() {
+    const r = await fetch(DATA + "data-dictionary.json");
+    if (!r.ok) throw new Error(`${r.status} for ${DATA}data-dictionary.json`);
+    const dict = await r.json();
+    const schemas = [...new Set(dict.tables.map((t) => t.schema))];
+    const sections = schemas.map((s) => el("section", {},
+      el("h2", { id: s }, s === "main" ? "Source tables" : s),
+      ...dict.tables.filter((t) => t.schema === s).map(table)));
+    const input = el("input", {
+      type: "search", class: "form-control mb-3",
+      placeholder: "Filter tables and columns", "aria-label": "Filter tables and columns",
+    });
+    input.addEventListener("input", () => filter(sections, input.value.trim().toLowerCase()));
+    root.replaceChildren(
+      el("p", { class: "small" }, `latest/ as of ${dict.publish_date} · `,
+        el("a", { href: DATA + "data-dictionary.json" }, "data-dictionary.json")),
+      input, ...sections);
+  }
+  main().catch((e) => root.replaceChildren(el("p", { class: "text-danger" }, `Couldn't load the data dictionary: ${e.message}`)));
+})();
+</script>
+```

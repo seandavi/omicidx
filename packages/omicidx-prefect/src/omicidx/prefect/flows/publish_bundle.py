@@ -10,6 +10,8 @@ Bundle contents, next to the flat ``*.parquet`` that ``parquet-export`` wrote:
 - ``views.sql`` — the same view definitions as plain SQL (ADR-0004).
 - ``restore.sql`` — builds a materialized local copy of every table, then
   checks row counts against ``manifest.json`` (#225).
+- ``data-dictionary.json`` — every table's columns (name + DuckDB type) and
+  the lake table it was exported from (#130); the docs' data dictionary page.
 - ``manifest.json`` — provenance attestation (spec §2a): raw partition set,
   transform SHA, internal lake snapshot id, publish timestamp, dated path.
 
@@ -36,6 +38,8 @@ from omicidx.prefect.run import retry
 from omicidx.prefect.semaphore import SemaphoreStore
 
 log = logging.getLogger(__name__)
+
+DICTIONARY_FILE = "data-dictionary.json"
 
 # Semaphore namespaces to summarize in the manifest (DUCKLAKE.md raw-partition
 # table). SRA fans out per entity under sra/<entity>.
@@ -127,10 +131,21 @@ def publish_bundle(date: str | None = None) -> dict:
             (workdir / "manifest.json").write_text(json.dumps(manifest, indent=2))
             (workdir / "views.sql").write_text(built["views_sql"])
             (workdir / "restore.sql").write_text(restore_sql(folder))
+            (workdir / DICTIONARY_FILE).write_text(
+                json.dumps({"publish_date": date, "tables": built["dictionary"]})
+            )
             # manifest.json last: it marks the folder complete (hf_release).
-            for name in (DB_FILE, "views.sql", "restore.sql", "manifest.json"):
+            for name in (
+                DB_FILE,
+                "views.sql",
+                "restore.sql",
+                DICTIONARY_FILE,
+                "manifest.json",
+            ):
                 _put_file(workdir / name, folder, name)
-            log.info(f"Published {DB_FILE}, SQL files, manifest.json → {folder}/")
+            log.info(
+                f"Published {DB_FILE}, SQL files, {DICTIONARY_FILE}, manifest.json → {folder}/"
+            )
 
     return {"date": date, "manifest": manifest}
 
