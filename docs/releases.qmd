@@ -86,7 +86,7 @@ Loading releases…
     const files = listings.flatMap((l) => l.files)
       .map((f) => ({ path: f.key.slice(dir.length), size: f.size }));
     const manifest = await getJson(`${DATA}${dir}manifest.json`);
-    const extras = ["omicidx.duckdb", "views.sql", "restore.sql", "manifest.json"]
+    const extras = ["omicidx.duckdb", "views.sql", "restore.sql", "data-dictionary.json", "manifest.json"]
       .filter((n) => files.some((f) => f.path === n));
     return [
       el("p", { class: "small" }, "Files: ",
