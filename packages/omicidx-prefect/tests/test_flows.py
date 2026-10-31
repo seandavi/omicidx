@@ -382,3 +382,54 @@ def test_sra_load_reads_only_completed_partitions(monkeypatch, tmp_path):
 
     globs, _ = _done_partitions("sample", since=None)
     assert [g.split("/")[-2] for g in globs] == ["stage=Full", "stage=Incremental"]
+
+
+def test_ebi_biosample_load_reads_only_completed_days(monkeypatch, tmp_path):
+    """#254/#79: only done days from the watermark on; empty days have no file."""
+    _stub_env(monkeypatch, tmp_path)
+    from omicidx.prefect.flows.ducklake_ebi_biosample import _done_days
+    from omicidx.prefect.semaphore import SemaphoreStore
+
+    sem = SemaphoreStore("ebi_biosample")
+    sem.mark_done("2026-10-28", metadata={"row_count": 5000})
+    sem.mark_done("2026-10-29", metadata={"row_count": 0})
+    sem.mark_done("2026-10-30", metadata={"row_count": 4939})
+    # 2026-10-31 is in flight: no semaphore yet.
+
+    paths, new_max = _done_days(since="2026-10-29")
+    assert [p.rsplit("/", 1)[-1] for p in paths] == ["biosamples-2026-10-30.ndjson.gz"]
+    assert new_max == "2026-10-30"
+
+    paths, new_max = _done_days(since=None)
+    assert len(paths) == 2 and new_max == "2026-10-30"
+    assert _done_days(since="2026-11-01") == ([], None)
+
+
+def test_ebi_biosample_reader_types_a_day_missing_columns(tmp_path):
+    """#254: a day without `domain` must not bind `trim(domain)` to its alias."""
+    import gzip
+    import json
+
+    import duckdb
+    from omicidx.prefect.flows.ducklake_ebi_biosample import (
+        _EBI_BIOSAMPLE_SOURCE,
+        _reader,
+    )
+
+    day = tmp_path / "biosamples-2026-10-30.ndjson.gz"
+    with gzip.open(day, "wt") as fh:
+        fh.write(json.dumps({"accession": "SAMEA1", "update": "u", "_links": {}}))
+    con = duckdb.connect()
+    con.execute(
+        "CREATE TABLE t (accession VARCHAR, name VARCHAR, domain VARCHAR,"
+        ' status VARCHAR, release VARCHAR, "update" VARCHAR, submitted VARCHAR,'
+        ' "create" VARCHAR, taxId BIGINT, sraAccession VARCHAR,'
+        " submittedVia VARCHAR, webinSubmissionAccountId VARCHAR,"
+        " characteristics STRUCT(tag VARCHAR)[], externalReferences JSON,"
+        " relationships JSON, publications JSON, organization JSON,"
+        " contact JSON, certificates JSON)"
+    )
+
+    sql = _EBI_BIOSAMPLE_SOURCE.format(reader=_reader(con, "t", [str(day)]))
+    assert con.sql(sql).fetchall()[0][:3] == ("SAMEA1", None, None)
+    assert _reader(con, "missing_table", [str(day)]).startswith("read_ndjson_auto(")
