@@ -17,6 +17,7 @@ from omicidx.prefect.flows.ducklake import (
     bioproject_to_ducklake,
 )
 from omicidx.prefect.flows.ducklake_biosample import biosample_to_ducklake
+from omicidx.prefect.flows.ducklake_ebi_biosample import ebi_biosample_to_ducklake
 from omicidx.prefect.flows.ducklake_geo import (
     geo_platform_to_ducklake,
     geo_sample_to_ducklake,
@@ -44,12 +45,13 @@ def ducklake_load(lake_schema: str = LAKE_SCHEMA, force: bool = False) -> None:
     """Upsert every entity's raw data into the DuckLake catalog.
 
     Tasks are independent (distinct lake tables); order is unconstrained.
-    SRA loaders are high-water-mark incremental; the rest are full-snapshot
-    with the `upsert` IS DISTINCT FROM gate. PubMed also applies deletes.
+    SRA and EBI BioSample loaders are high-water-mark incremental; the rest are
+    full-snapshot with the `upsert` IS DISTINCT FROM gate. PubMed also applies
+    deletes.
 
     `force=True` is the **reproduce-from-raw** mode (spec §1, A3): it drops the
-    SRA high-water-mark filter so every retained raw partition is re-scanned,
-    reproducing lake state from raw. The full-snapshot loaders already read all
+    SRA and EBI BioSample high-water-mark filters so every retained raw
+    partition is re-scanned, reproducing lake state from raw. The full-snapshot loaders already read all
     raw every run, so they need no flag. Reproducing is idempotent — an
     unchanged re-run writes zero new data files (see `tests/test_idempotency.py`).
     """
@@ -60,6 +62,7 @@ def ducklake_load(lake_schema: str = LAKE_SCHEMA, force: bool = False) -> None:
 
     bioproject_to_ducklake(lake_schema=lake_schema)
     biosample_to_ducklake(lake_schema=lake_schema)
+    ebi_biosample_to_ducklake(lake_schema=lake_schema, force=force)
     geo_series_to_ducklake(lake_schema=lake_schema)
     geo_sample_to_ducklake(lake_schema=lake_schema)
     geo_platform_to_ducklake(lake_schema=lake_schema)

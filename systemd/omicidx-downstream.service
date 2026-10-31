@@ -18,6 +18,11 @@ OnFailure=ntfy-notify@%N.service
 
 [Service]
 Type=oneshot
+# The default soft limit is 1024. A DuckDB read over many raw files (an EBI
+# BioSample catch-up or force run: ~1,500 day files, 1,159 fds measured) runs
+# out, and curl then fails with misleading errors ("Problem with the SSL CA
+# cert", "Could not resolve hostname") (#254).
+LimitNOFILE=65536
 WorkingDirectory=/home/davsean/Documents/git/omicidx
 EnvironmentFile=/home/davsean/Documents/git/omicidx/.env
 # NOT `/usr/bin/env uv` — systemd --user gives a minimal PATH that excludes
