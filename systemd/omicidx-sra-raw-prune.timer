@@ -3,9 +3,10 @@ Description=Monthly omicidx SRA raw retention
 Documentation=https://github.com/seandavi/omicidx/issues/194
 
 [Timer]
-# Mid-month, 14:00 UTC: well clear of the monthly Full extraction (the first
-# days of the month) and of the 05:00 downstream run.
-OnCalendar=*-*-15 14:00:00 UTC
+# Mid-month, 09:00 UTC: well clear of the monthly Full extraction (the first
+# days of the month) and of the downstream run (09:00 America/Denver, so
+# 15:00-16:00 UTC), which reads the raw files this deletes.
+OnCalendar=*-*-15 09:00:00 UTC
 RandomizedDelaySec=1800
 Persistent=true
 
