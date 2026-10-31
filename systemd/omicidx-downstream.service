@@ -9,7 +9,7 @@ After=network-online.target
 Wants=network-online.target
 OnFailure=ntfy-notify@%N.service
 # No Conflicts= with the extract units, deliberately. Conflicts= *stops* the
-# other unit, and killing a 3-hour BioSample pull at 05:00 to start the load is
+# other unit, and killing a long extract (e.g. a 3-hour BioSample pull) to start the load is
 # strictly worse than letting both run. Overlap is safe because every extract
 # stages its output locally and then writes the finished object to R2 in one
 # shot: a concurrent reader sees the previous complete object, never a partial

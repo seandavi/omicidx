@@ -3,13 +3,15 @@ Description=Daily omicidx downstream pipeline (lake load -> transform -> export 
 Documentation=https://github.com/seandavi/omicidx/issues/158
 
 [Timer]
-# 05:00 UTC: after the last extract slot (biosample 04:00 +<=30m jitter). The
-# chain reads whatever raw the extract timers have landed; it does not wait on
+# 09:00 America/Denver (15:00 UTC in summer, 16:00 in winter): after every
+# extract slot, including GEO at 06:00 UTC, which finishes by ~07:00 UTC even on
+# the 1st when two months re-run. At 05:00 GEO landed after the chain started, so
+# each night's GEO data was published a day late. The chain reads whatever raw the extract timers have landed; it does not wait on
 # them, so an extract that overruns lands in the next day's load instead of
 # blocking this one. That decoupling is the point of #149 — a wedged extract
 # can no longer hold the publish hostage, which is exactly what GEO did for a
 # month (#174).
-OnCalendar=*-*-* 05:00:00 UTC
+OnCalendar=*-*-* 09:00:00 America/Denver
 RandomizedDelaySec=900
 Persistent=true
 

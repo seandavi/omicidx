@@ -3,7 +3,7 @@ Description=Weekly NCBI Taxonomy taxdump extraction
 
 [Timer]
 # Weekly: renames trickle in, and a week's lag on a name is harmless (the taxid
-# is always right). Saturday 03:00 UTC lands it before that day's 05:00
+# is always right). Saturday 03:00 UTC lands it before that day's 09:00 America/Denver
 # omicidx-downstream load, so the new names publish the same morning.
 OnCalendar=Sat *-*-* 03:00:00 UTC
 RandomizedDelaySec=1800

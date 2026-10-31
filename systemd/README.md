@@ -17,10 +17,10 @@ server, no worker container, and no deployment manifest — `prefect.yaml`,
 | `omicidx-geo-extract` | `python -m omicidx.prefect.flows.geo run` | daily 06:00 UTC (+≤30m jitter) |
 | `omicidx-pubmed-extract` | `python -m omicidx.prefect.flows.pubmed run` | hourly (+≤5m jitter) |
 | `omicidx-ncbi-taxonomy-extract` | `python -m omicidx.prefect.flows.ncbi_taxonomy run` | Saturday 03:00 UTC (+≤30m jitter) |
-| `omicidx-downstream` | `python -m omicidx.prefect.flows.main run` | daily 05:00 UTC (+≤15m jitter) |
-| `omicidx-ducklake-maintenance` | `omicidx-prefect run ducklake-maintenance` | Sunday 14:00 UTC (+≤30m jitter) |
-| `omicidx-hf-release` | `python -m omicidx.prefect.flows.hf_release run` | monthly, the 2nd 12:00 UTC (+≤15m jitter) |
-| `omicidx-sra-raw-prune` | `omicidx-prefect run prune-sra-raw --apply` | monthly, the 15th 14:00 UTC (+≤30m jitter) |
+| `omicidx-downstream` | `python -m omicidx.prefect.flows.main run` | daily 09:00 America/Denver (+≤15m jitter) |
+| `omicidx-ducklake-maintenance` | `omicidx-prefect run ducklake-maintenance` | Sunday 09:00 UTC (+≤30m jitter) |
+| `omicidx-hf-release` | `python -m omicidx.prefect.flows.hf_release run` | monthly, the 2nd 22:00 UTC (+≤15m jitter) |
+| `omicidx-sra-raw-prune` | `omicidx-prefect run prune-sra-raw --apply` | monthly, the 15th 09:00 UTC (+≤30m jitter) |
 
 `omicidx-biosample-extract` covers **both** NCBI full dumps (BioSample and
 BioProject) in one unit: same machinery, two URLs, both unpartitioned. It and
@@ -36,7 +36,7 @@ it does not contend for the bandwidth the two heavy jobs fight over.
 five: the stages are strictly sequential and each consumes the previous one's
 output, so splitting them would only buy `After=` ordering the single process
 already has. It declares no `Conflicts=` with the extracts either — the load
-reads raw files that are already complete, so an extract still running at 05:00
+reads raw files that are already complete, so an extract still running at the downstream start
 just means its newest partition lands in tomorrow's load. **Nothing downstream
 waits on an extract any more**, which is the whole point of #149: a slow or
 failing extract can no longer hold the publish hostage, which is exactly what
