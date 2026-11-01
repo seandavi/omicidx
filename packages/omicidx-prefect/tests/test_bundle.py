@@ -62,6 +62,16 @@ def test_views_duckdb_reads_public_parquet_anonymously(tmp_path, monkeypatch):
         assert len(built["summaries"]) == len(sql.PUBLIC_VIEWS)
         assert f"{base}/v2026-01-01/sra_runs.parquet" in built["views_sql"]
 
+        # Data dictionary (#130): one entry per public file, columns + source.
+        entries = {(d["schema"], d["table"]): d for d in built["dictionary"]}
+        assert len(entries) == len(sql.PUBLIC_VIEWS)
+        assert entries[("sradb", "run")]["columns"] == [
+            {"name": "id", "type": "BIGINT"}
+        ]
+        assert entries[("sradb", "run")]["source"] == "lake.sradb.run"
+        assert entries[("main", "sra_runs")]["source"] == "lake.omicidx.sra_run"
+        assert entries[("main", "geo_samples")]["source"] == "lake.stg.geo_samples"
+
         # Anonymous client: fresh connection, NO secrets, read-only open.
         client = duckdb.connect(str(built["db_path"]), read_only=True)
         client.execute("LOAD httpfs")

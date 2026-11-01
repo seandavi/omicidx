@@ -64,6 +64,10 @@ website:
             text: Use from R (omicidxr)
           - href: guides/versions-and-citation.qmd
             text: Versions and citation
+      - section: Reference
+        contents:
+          - href: data-dictionary.qmd
+            text: Data dictionary
       - section: In the browser
         contents:
           - href: playground.qmd

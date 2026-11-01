@@ -42,6 +42,7 @@ citation](versions-and-citation.qmd) for which to use, and
 | `omicidx.duckdb` | A small DuckDB database with a view over every Parquet file |
 | `views.sql` | The same views as plain SQL |
 | `restore.sql` | Builds a local copy of every table (see [Work offline](#work-offline)). Older dated folders don't have it |
+| `data-dictionary.json` | Every table's columns and types; browse it on the [data dictionary](../data-dictionary.qmd) page |
 | `manifest.json` | Publish date, transform commit, lake snapshot id, row counts |
 
 You can browse a folder listing in your browser, e.g.
@@ -92,7 +93,8 @@ file are fetched.
 
 A modernized [SRAdb](https://bioconductor.org/packages/SRAdb/) schema. Legacy
 column names are kept where the data still exists, always-empty columns are
-dropped, and BioProject, GEO, and PubMed cross-references are added.
+dropped, and BioProject, GEO, and PubMed cross-references are added. Every
+table's columns are listed in the [data dictionary](../data-dictionary.qmd).
 
 | Table | One row per |
 |---|---|
