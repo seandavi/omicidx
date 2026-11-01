@@ -75,7 +75,7 @@ Each bundle contains:
   requests for remote DuckDB reads.
 - Retention: rolling `latest/` **plus** immutable dated `v{date}/` folders, each
   with its own views pointing at its own Parquet. Dated folders are a bounded
-  window (`PUBLIC_BUNDLE_RETENTION_DAYS`, default 30); B′ opens the dial.
+  window (7 dailies + 5 weeklies, ADR-0007, #258); B′ opens the dial.
 
 ### (2a) Snapshot faithfulness — the gate on time travel
 

@@ -40,11 +40,13 @@ class Settings(BaseSettings):
     public_parquet_https_base: str | None = (
         None  # e.g. https://data.omicidx.cancerdatasci.org
     )
-    # Dated bundles are a bounded window: immutable v{date}/ folders older
-    # than this are pruned by parquet-export. 30 days so a day-level pin
-    # survives a month (#201 D3); B′ later opens this dial (or drops pruning)
-    # for retained-snapshot time travel.
-    public_bundle_retention_days: int = 30
+    # Dated bundles are a bounded window, pruned by parquet-export: keep the
+    # newest N dated folders, plus the newest folder of each of the newest M
+    # ISO weeks (#258). Nothing but crawlers read a folder older than a week;
+    # the HF monthly releases are the long-term archive. B′ later opens this
+    # dial (or drops pruning) for retained-snapshot time travel.
+    public_bundle_keep_daily: int = 7
+    public_bundle_keep_weekly: int = 5
     # Write token for the monthly HuggingFace release (flows/hf_release.py).
     hf_token: str | None = None
     # HF dataset the monthly release goes to (#224).

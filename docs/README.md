@@ -26,7 +26,7 @@ R, Python and SQL blocks run at render time, against live data, so a page
 can't show output it didn't produce. Use `latest/` (HuggingFace rate-limits
 anonymous reads, so HF examples are plain, non-executed blocks), keep queries
 small (`LIMIT`, selective filters), and never hard-code a dated folder in an
-executed block: they're deleted after 30 days.
+executed block: most are deleted after a week (ADR-0007).
 
 - **SQL:** ```` ```{sql} ```` blocks run on `con`, a DuckDB connection the page opens in a hidden setup chunk (`connection: con` in `_quarto.yml`). Mark a non-executed SQL block that shouldn't get a shell link with ```` ```{.sql .no-shell} ````.
 - **Python:** runs through reticulate; `reticulate::py_require()` in the page's setup chunk provisions duckdb/polars/pyarrow with uv.

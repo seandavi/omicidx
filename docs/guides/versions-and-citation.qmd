@@ -17,7 +17,7 @@ same layout; they differ in how long they last and how you use them.
 | Version | Where | Changes? | Kept | Use it by |
 |---|---|---|---|---|
 | `latest/` | `https://omicidx.cancerdatasci.org/data/latest/` | rebuilt every night | always the newest | querying in place |
-| Dated | `https://omicidx.cancerdatasci.org/data/v{YYYY-MM-DD}/` | never | 30 days | querying in place |
+| Dated | `https://omicidx.cancerdatasci.org/data/v{YYYY-MM-DD}/` | never | the 7 newest, plus each week's last build (normally Sunday's) for 5 weeks | querying in place |
 | Monthly release | HuggingFace dataset [`seandavis/omicidx`](https://huggingface.co/datasets/seandavis/omicidx), git tag `YYYY-MM` | never | long term, with a DOI | downloading, then querying locally |
 
 `latest/` and the dated folders are served for querying in place: DuckDB
@@ -28,21 +28,22 @@ the version to cite. Download one, then query it locally.
 ## Which one to use
 
 - **Exploring, or building something that should track NCBI:** use `latest/`.
-- **An analysis you'll rerun in the next few weeks:** pin a dated folder.
+- **An analysis you'll rerun in the next few weeks:** pin a dated folder. Pick a Sunday build to keep it for five weeks; other days last one week.
 - **A paper, a shared pipeline, or anything you'll cite:** download a monthly release.
 
 ## Pin a dated folder
 
-Replace `latest/` with a date:
+Replace `latest/` with a date from [Releases](../releases.qmd) (a Sunday build lasts five weeks):
 
 ```{.sql .no-shell}
 SELECT count(*)
-FROM read_parquet('https://omicidx.cancerdatasci.org/data/v2026-10-20/sradb/study.parquet');
+FROM read_parquet('https://omicidx.cancerdatasci.org/data/v2026-11-01/sradb/study.parquet');
 ```
 
 To see which dates are available, open [Releases](../releases.qmd) or the
-[folder listing](https://omicidx.cancerdatasci.org/data/). Dated folders older
-than 30 days are deleted. Use a monthly release for anything longer.
+[folder listing](https://omicidx.cancerdatasci.org/data/). The 7 newest dated
+folders are kept, plus each week's last build (normally Sunday's) for 5 weeks;
+the rest are deleted. Use a monthly release for anything longer.
 
 ::: callout-caution
 In dated folders published before late October 2026, `omicidx.duckdb` and
@@ -97,8 +98,8 @@ release you used, which you'll find on the dataset page for that tag. In your
 methods, also state the release tag (e.g. `2026-10`).
 
 If you used a dated folder instead, record its URL and the `transform_sha`
-and `lake_snapshot_id` from its `manifest.json`. The folder will be gone in
-30 days, so a monthly release is the better thing to cite.
+and `lake_snapshot_id` from its `manifest.json`. The folder will be gone within
+five weeks, so a monthly release is the better thing to cite.
 
 ## The manifest
 

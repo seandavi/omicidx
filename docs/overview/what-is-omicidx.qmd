@@ -24,7 +24,7 @@ On top of the source tables, OmicIDX builds two sets of compatibility tables:
 ## How you get it
 
 - **Nightly:** `https://omicidx.cancerdatasci.org/data/latest/` is rebuilt every night.
-- **Dated:** an immutable `v{YYYY-MM-DD}/` folder per night, kept for 30 days.
+- **Dated:** an immutable `v{YYYY-MM-DD}/` folder per night. The 7 newest are kept, plus each week's last build (normally Sunday's) for 5 weeks.
 - **Monthly:** a long-term release on HuggingFace ([`seandavis/omicidx`](https://huggingface.co/datasets/seandavis/omicidx)) with a git tag and a DOI, to download and cite.
 
 [Working with the data](../guides/duckdb-snapshot.qmd) has the DuckDB details;

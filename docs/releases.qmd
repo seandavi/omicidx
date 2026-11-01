@@ -8,7 +8,7 @@ Every version available right now, read live from the data server and
 HuggingFace. Expand one to see its tables, with file sizes, row counts from
 its `manifest.json`, and download links.
 
-- **`latest/`** and the **dated folders** (`v{YYYY-MM-DD}/`, kept 30 days) are for querying in place: attach their `omicidx.duckdb` or `read_parquet` a file. `restore.sql` builds a local copy (`duckdb omicidx-local.duckdb < restore.sql`).
+- **`latest/`** and the **dated folders** (`v{YYYY-MM-DD}/`: the 7 newest, plus each week's last build for 5 weeks) are for querying in place: attach their `omicidx.duckdb` or `read_parquet` a file. `restore.sql` builds a local copy (`duckdb omicidx-local.duckdb < restore.sql`).
 - **Monthly releases** on HuggingFace are the long-term archive and the version to cite. Download one with `hf download`, or `omicidx_download()` in R, then query it locally. See [Versions and citation](guides/versions-and-citation.qmd).
 
 ::: {#releases}

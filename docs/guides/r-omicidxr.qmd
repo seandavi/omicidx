@@ -51,7 +51,7 @@ The `version` argument picks a [version](versions-and-citation.qmd):
 | `version` | What you get |
 |---|---|
 | `"latest"` (default) | The nightly build at `https://omicidx.cancerdatasci.org/data/latest/` |
-| `"YYYY-MM-DD"` | A dated nightly build. Kept for 30 days |
+| `"YYYY-MM-DD"` | A dated nightly build. The 7 newest are kept, plus each week's last (normally Sunday's) for 5 weeks |
 | `"YYYY-MM"` | A monthly release from HuggingFace (`seandavis/omicidx@YYYY-MM`). Kept long term. Cite this one |
 
 ```r
