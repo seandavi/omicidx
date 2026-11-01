@@ -191,8 +191,9 @@ Layout (per publish, `date` = UTC day):
   latest/                      # rolling; same files, views point at latest/
 ```
 
-Dated folders older than `PUBLIC_BUNDLE_RETENTION_DAYS` (default 30) are pruned
-by `parquet-export`; today's is never pruned.
+`parquet-export` prunes dated folders to the `PUBLIC_BUNDLE_KEEP_DAILY` (7)
+newest plus the newest of each of the `PUBLIC_BUNDLE_KEEP_WEEKLY` (5) newest ISO
+weeks (`select_dated_keep`, ADR-0007); today's is never pruned.
 
 ### Anonymous read contract (the load-bearing assumption, verified)
 

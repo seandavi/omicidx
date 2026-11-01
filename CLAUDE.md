@@ -27,8 +27,9 @@ Invariants that follow from the finalized decisions:
   Postgres or file-based.
 - **Public read path:** anonymous HTTPS via the Cloudflare Worker /
   custom-domain (range requests). No `--no-sign-request` R2, no client
-  credentials. Rolling `latest/` + immutable dated `v{date}/` (kept
-  `PUBLIC_BUNDLE_RETENTION_DAYS`, default 30); each folder's views point at
+  credentials. Rolling `latest/` + immutable dated `v{date}/` (the 7 newest,
+  plus each ISO week's newest for 5 weeks: `PUBLIC_BUNDLE_KEEP_DAILY` /
+  `PUBLIC_BUNDLE_KEEP_WEEKLY`, ADR-0007); each folder's views point at
   that folder's Parquet. Opening `omicidx.duckdb` and querying it
   credential-free over HTTPS range is the load-bearing assumption
   (`tests/test_bundle.py`).

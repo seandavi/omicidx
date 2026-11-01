@@ -14,7 +14,7 @@
 > Parquet (base tables + `sradb/`/`geometadb/` marts), `omicidx.duckdb` and
 > `views.sql` with views over **all** of it, and `manifest.json`. Each
 > `v{date}/` bundle's views point at its own folder; `latest/`'s at `latest/`.
-> Dated folders are kept 30 days (`PUBLIC_BUNDLE_RETENTION_DAYS`). The layout
+> Dated folders are kept as a bounded window (ADR-0007: 7 dailies + 5 weeklies). The layout
 > sketch below (`vN.N/`, quarterly) predates the daily `latest/` + `v{date}/`
 > layout and is kept as the original record.
 

@@ -29,7 +29,8 @@ https://omicidx.cancerdatasci.org/data/
 (The older `https://data.omicidx.cancerdatasci.org/` serves the same files.)
 
 Under it, `latest/` is rebuilt every night. Each night also gets an immutable
-`v{YYYY-MM-DD}/` folder, kept for 30 days. See [Versions and
+`v{YYYY-MM-DD}/` folder: the 7 newest are kept, plus each week's last build
+(normally Sunday's) for 5 weeks. See [Versions and
 citation](versions-and-citation.qmd) for which to use, and
 [Releases](../releases.qmd) for what's there now. Each folder contains:
 

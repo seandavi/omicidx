@@ -13,9 +13,10 @@ Two prefixes per run (spec §2, Stage B1):
 
 The COPY reads the lake once (into ``v{date}/``); ``latest/`` is written by
 re-reading that dated Parquet over httpfs, not a second read of the lake (and
-not an s3fs server-side copy — R2 flakes on multi-GB objects). Dated folders older
-than ``PUBLIC_BUNDLE_RETENTION_DAYS`` are pruned (v1 bounded window; B′ opens
-the dial for retained-snapshot time travel).
+not an s3fs server-side copy — R2 flakes on multi-GB objects). Old dated folders
+are pruned to the newest ``PUBLIC_BUNDLE_KEEP_DAILY`` plus one per ISO week for
+the newest ``PUBLIC_BUNDLE_KEEP_WEEKLY`` weeks (``select_dated_keep``; v1 bounded
+window; B′ opens the dial for retained-snapshot time travel).
 
 The R2 secret built by ``get_ducklake_connection()`` is account-scoped, so the
 COPY into a *different* bucket than the lake's ``cdsci-lake`` reuses it with no
@@ -23,7 +24,7 @@ extra credentials.
 """
 
 import logging
-from datetime import UTC, datetime, timedelta
+from datetime import datetime
 
 from omicidx.prefect.config import (
     get_ducklake_connection,
@@ -133,34 +134,60 @@ def export_table(
     }
 
 
-def prune_dated_folders(keep_date: str) -> list[str]:
-    """Delete immutable v{date}/ folders older than the retention window.
+def select_dated_keep(
+    dates: list[str], keep_date: str, daily: int, weekly: int
+) -> set[str]:
+    """The dated folders (``YYYY-MM-DD``) to keep; everything else is pruned.
 
-    ``keep_date`` (today) is always kept even if retention is 0. Folders are
-    identified by the ``vYYYY-MM-DD`` prefix; anything else under the public
-    root (``latest/``, ``duckdb/``, ...) is left untouched.
+    The ``daily`` newest folders, plus the newest folder of each of the
+    ``weekly`` newest ISO weeks (normally Sunday's build, but any build if that
+    night failed), plus ``keep_date`` (today's, just written) always. Counts,
+    not ages, so a run of failed nights never empties the window.
     """
-    days = settings().public_bundle_retention_days
-    cutoff = (
-        datetime.strptime(keep_date, "%Y-%m-%d").replace(tzinfo=UTC)
-        - timedelta(days=days)
-    ).date()
+    newest_first = sorted(set(dates), reverse=True)
+    keep = set(newest_first[:daily]) | {keep_date}
+    weeks: dict[tuple[int, int], str] = {}
+    for d in newest_first:
+        iso = datetime.strptime(d, "%Y-%m-%d").isocalendar()
+        weeks.setdefault((iso.year, iso.week), d)
+    keep |= set(sorted(weeks.values(), reverse=True)[:weekly])
+    return keep
 
+
+def prune_dated_folders(keep_date: str) -> list[str]:
+    """Delete the immutable v{date}/ folders ``select_dated_keep`` doesn't keep.
+
+    ``keep_date`` (today) is always kept. Folders are identified by the
+    ``vYYYY-MM-DD`` prefix; anything else under the public root (``latest/``,
+    ``duckdb/``, ...) is left untouched.
+    """
+    s = settings()
     root = get_public_upath()
-    removed: list[str] = []
+    folders = {}
     for child in root.iterdir():
         name = child.name
         if not (name.startswith("v") and len(name) == 11):
             continue
         try:
-            folder_date = datetime.strptime(name[1:], "%Y-%m-%d").date()
+            datetime.strptime(name[1:], "%Y-%m-%d")
         except ValueError:
             continue
-        if name[1:] != keep_date and folder_date < cutoff:
-            log.info(f"Pruning old dated folder {name}/ (< {cutoff})")
-            child.fs.rm(child.path, recursive=True)
-            removed.append(name)
-    log.info(f"Pruned {len(removed)} dated folder(s); retention={days}d")
+        folders[name[1:]] = child
+    keep = select_dated_keep(
+        list(folders),
+        keep_date,
+        s.public_bundle_keep_daily,
+        s.public_bundle_keep_weekly,
+    )
+    removed: list[str] = []
+    for d in sorted(set(folders) - keep):
+        log.info(f"Pruning dated folder v{d}/")
+        folders[d].fs.rm(folders[d].path, recursive=True)
+        removed.append(f"v{d}")
+    log.info(
+        f"Pruned {len(removed)} dated folder(s); kept {len(keep & set(folders))} "
+        f"(daily={s.public_bundle_keep_daily}, weekly={s.public_bundle_keep_weekly})"
+    )
     return removed
 
 
