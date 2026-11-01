@@ -35,7 +35,7 @@ citation](versions-and-citation.qmd) for which to use, and
 
 | Path | What it is |
 |---|---|
-| `<table>.parquet` | One file per source table: `sra_studies`, `sra_samples`, `sra_experiments`, `sra_runs`, `sra_accessions`, `geo_series`, `geo_samples`, `geo_platforms`, `geo_series_with_rnaseq_counts`, `biosamples`, `bioprojects` |
+| `<table>.parquet` | One file per source table: `sra_studies`, `sra_samples`, `sra_experiments`, `sra_runs`, `sra_accessions`, `geo_series`, `geo_samples`, `geo_platforms`, `geo_series_with_rnaseq_counts`, `biosamples`, `ebi_biosamples`, `bioprojects` |
 | `sradb/<table>.parquet` | SRAdb-compatible tables |
 | `geometadb/<table>.parquet` | GEOmetadb-compatible tables |
 | `omicidx.duckdb` | A small DuckDB database with a view over every Parquet file |
