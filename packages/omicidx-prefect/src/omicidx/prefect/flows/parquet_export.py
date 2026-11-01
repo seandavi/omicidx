@@ -44,6 +44,7 @@ log = logging.getLogger(__name__)
 EXPORTS: list[tuple[str, str]] = [
     ("bioproject", "bioprojects.parquet"),
     ("biosample", "biosamples.parquet"),
+    ("ebi_biosample", "ebi_biosamples.parquet"),
     ("geo_series", "geo_series.parquet"),
     ("geo_sample", "geo_samples.parquet"),
     ("geo_platform", "geo_platforms.parquet"),

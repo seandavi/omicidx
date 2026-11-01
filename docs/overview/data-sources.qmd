@@ -9,8 +9,9 @@ whatever has been extracted so far, so one slow source never holds up the rest.
 | Source | Upstream | Extract cadence | Public files |
 |---|---|---|---|
 | NCBI SRA | [SRA mirroring XML](https://ftp.ncbi.nlm.nih.gov/sra/reports/Mirroring/), plus `SRA_Accessions.tab` | daily | `sra_studies`, `sra_samples`, `sra_experiments`, `sra_runs`, `sra_accessions`; `sradb/*` |
-| NCBI GEO | GEO SOFT records via E-utilities and `acc.cgi`, one calendar month at a time | daily (current month re-fetched) | `geo_series`, `geo_samples`, `geo_platforms`, `geo_series_with_rnaseq_counts`; `geometadb/*` |
+| NCBI GEO | GEO SOFT records via E-utilities and `acc.cgi`, one calendar month at a time | daily (a month is re-fetched until it settles on the 2nd) | `geo_series`, `geo_samples`, `geo_platforms`, `geo_series_with_rnaseq_counts`; `geometadb/*` |
 | NCBI BioSample | [`biosample_set.xml.gz`](https://ftp.ncbi.nlm.nih.gov/biosample/) full dump | daily | `biosamples` |
+| EBI BioSamples | [BioSamples API](https://www.ebi.ac.uk/biosamples/samples), one day of updated records at a time | daily | `ebi_biosamples` |
 | NCBI BioProject | [`bioproject.xml`](https://ftp.ncbi.nlm.nih.gov/bioproject/) full dump | daily | `bioprojects` |
 | NCBI Taxonomy | [`taxdump.tar.gz`](https://ftp.ncbi.nlm.nih.gov/pub/taxonomy/) | weekly | none: used to resolve organism names |
 

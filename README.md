@@ -74,6 +74,7 @@ Flat base tables, one Parquet file each, at `latest/<file>.parquet` (rolling) an
 | GEO Series | `geo_series.parquet` | 280K+ | NCBI GEO |
 | GEO Platforms | `geo_platforms.parquet` | 28K+ | NCBI GEO |
 | BioSamples | `biosamples.parquet` | 51M+ | NCBI BioSample |
+| EBI BioSamples | `ebi_biosamples.parquet` | 54M+ | EBI BioSamples |
 | BioProjects | `bioprojects.parquet` | 1M+ | NCBI BioProject |
 
 The `sradb.*` and `geometadb.*` marts are published under
