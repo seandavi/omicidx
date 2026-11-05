@@ -183,17 +183,21 @@ Layout (per publish, `date` = UTC day):
 ```
 <public root>/
   v{date}/                     # immutable dated snapshot
-    *.parquet                  # flat per-table Parquet (parquet-export)
-    {sradb,geometadb}/*.parquet# marts (parquet-export)
+    *.parquet                  # flat per-table Parquet (base tables)
+    {sradb,geometadb}/*.parquet# marts
     omicidx.duckdb             # views over every Parquet file in v{date}/
     views.sql                  # the same views as SQL, concrete HTTPS URLs
-    manifest.json              # provenance attestation (below)
+    restore.sql                # a materialized local copy + row-count check
+    manifest.json              # provenance attestation (below), written last
   latest/                      # rolling; same files, views point at latest/
 ```
 
-`parquet-export` prunes dated folders to the `PUBLIC_BUNDLE_KEEP_DAILY` (7)
-newest plus the newest of each of the `PUBLIC_BUNDLE_KEEP_WEEKLY` (5) newest ISO
-weeks (`select_dated_keep`, ADR-0007); today's is never pruned.
+The build and upload are `cdsci.publish` (cdsci-lake ADR-0027): the bundle is
+built whole on local disk, then uploaded to `v{date}/` and `latest/`. A
+completed `v{date}/` is never overwritten. Dated folders are pruned to the
+`PUBLIC_BUNDLE_KEEP_DAILY` (7) newest plus the newest of each of the
+`PUBLIC_BUNDLE_KEEP_WEEKLY` (5) newest ISO weeks (`keep_daily_weekly`,
+ADR-0007); today's is never pruned.
 
 ### Anonymous read contract (the load-bearing assumption, verified)
 
@@ -218,7 +222,11 @@ regression: `tests/test_bundle.py`.
 `manifest.json` pins each publish to its provenance: `publish_date`,
 `published_at`, `dated_path`, `transform_sha` (repo git SHA), `lake_snapshot_id`
 (the internal snapshot the publish was cut from), `raw_partition_counts` (per
-source namespace), and per-table row counts. This is the primitive that makes a
+source namespace), and per-table row counts. Since 2026-11 it is also a
+`cdsci.publish` manifest (cdsci-lake ADR-0027, `manifest_version` 1): `release`
+(= `publish_date`), `git_sha` (= `transform_sha`), `base_url`, and per table
+`path`, `bytes`, `sha256` and `columns`. The duplicated spellings stay within
+manifest_version 1 so existing readers keep working. This is the primitive that makes a
 retained snapshot attestable — the gate B′ time travel builds on. v1 records
 partition *counts*; full enumeration (exact reproduce-from-raw) is a B′ upgrade.
 

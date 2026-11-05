@@ -102,11 +102,11 @@ has reviewed a dry run (`omicidx-prefect run prune-sra-raw`, no `--apply`).
 ## Scratch space
 
 `omicidx-downstream` sets `TMPDIR=/data/davsean/tmp`. This is not optional:
-`publish-bundle` re-materializes every exported table into a local DuckLake
-before uploading, so it needs more free space than the entire snapshot — 63.4 GB
-on 2026-08-15 and growing, against a 30 GB `/tmp`. Run the stage by hand and you
-must export `TMPDIR` yourself, or it dies with `No space left on device` after
-doing all the work.
+`publish-bundle` builds the whole bundle on local disk (every exported table as
+Parquet, plus `omicidx.duckdb`) before uploading it, so it needs more free space
+than the entire snapshot — about 50 GB in 2026-11 and growing, against a 30 GB
+`/tmp`. Run the stage by hand and you must export `TMPDIR` yourself, or it dies
+with `No space left on device` after doing all the work.
 
 ## Recovery after a failed downstream run
 
@@ -116,9 +116,16 @@ earlier one is safe, just slower:
 ```bash
 omicidx-prefect run ducklake-load
 omicidx-prefect run transform
-omicidx-prefect run parquet-export
 omicidx-prefect run publish-bundle
 ```
+
+One exception to "idempotent": a completed `v{date}/` folder is never
+overwritten (cdsci-lake ADR-0027). Re-running `publish-bundle` on the same UTC
+day after a *successful* publish finishes only `latest/` if the bundle's files
+are the same, and fails if they differ (the lake moved on). To re-publish a day
+that went out broken, delete that `v{date}/` folder in the bucket first, then
+re-run. `omicidx-prefect run publish-bundle --dry-run` prints the upload plan
+without writing.
 
 `omicidx-geo-extract` also declares no `Conflicts=`, for the same reason: it is
 bandwidth-light (tens of thousands of small `acc.cgi` requests, <1 GB RSS). The

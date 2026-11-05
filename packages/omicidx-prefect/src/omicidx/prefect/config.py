@@ -15,6 +15,7 @@ from urllib.parse import urlparse
 import duckdb
 from cdsci.lake.config import Settings as LakeSettings
 from cdsci.lake.connect import lake_connect
+from cdsci.publish.upload import r2_filesystem
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from upath import UPath
 
@@ -103,11 +104,10 @@ def publish_date() -> str:
 
 
 def get_public_upath(*parts: str) -> UPath:
-    """UPath under the public parquet root (fsspec ops: copy, listdir, rm).
+    """UPath under the public parquet root (fsspec ops: listdir, download).
 
-    Same account-scoped R2 credentials as the lake; used for server-side
-    object copy (v{date}/ → latest/) and dated-folder pruning, where DuckDB
-    COPY does not apply.
+    Same account-scoped R2 credentials as the lake; the HF release reads a
+    dated folder back through it.
     """
     root = settings().public_parquet_root
     if not root:
@@ -116,20 +116,23 @@ def get_public_upath(*parts: str) -> UPath:
     return UPath(root_s3, *parts, **storage_options())
 
 
-def get_public_parquet_path(*parts: str) -> str:
-    """Build an r2:// path under the public parquet root for DuckDB COPY.
-
-    The R2 secret created in `get_duckdb_connection()` is account-scoped
-    (no SCOPE), so a COPY to this bucket reuses it — no extra credentials.
-    """
+def public_bucket() -> str:
+    """The public bucket name (``r2://data-omicidx`` -> ``data-omicidx``)."""
     root = settings().public_parquet_root
     if not root:
         raise RuntimeError("PUBLIC_PARQUET_ROOT is not set")
-    # UPath has no r2 filesystem; build with s3:// then emit r2:// for DuckDB
-    # (same trick as get_duckdb_path). Accepts an s3:// or r2:// root.
-    root_s3 = root.replace("r2://", "s3://", 1)
-    upath = UPath(root_s3, *parts)
-    return str(upath).replace("s3://", "r2://", 1)
+    return root.split("://", 1)[-1].strip("/")
+
+
+def _r2_account_id() -> str:
+    s = settings()
+    return (urlparse(s.s3_endpoint).netloc or s.s3_endpoint).split(".")[0]
+
+
+def get_public_filesystem():
+    """pyarrow S3 filesystem on the R2 account, for ``cdsci.publish.upload``."""
+    s = settings()
+    return r2_filesystem(_r2_account_id(), s.s3_access_key_id, s.s3_secret_access_key)
 
 
 # ---------------------------------------------------------------------------
@@ -170,7 +173,7 @@ def get_duckdb_connection(database: str = ":memory:") -> duckdb.DuckDBPyConnecti
     con.execute("SET http_retry_backoff = 2.0;")
     con.execute("SET http_keep_alive = true;")
 
-    account_id = (urlparse(s.s3_endpoint).netloc or s.s3_endpoint).split(".")[0]
+    account_id = _r2_account_id()
     sql = f"""
     CREATE OR REPLACE SECRET r2 (
         TYPE r2,
@@ -262,13 +265,12 @@ def _lake_settings() -> LakeSettings:
     if not s.ducklake_uri:
         raise RuntimeError("DUCKLAKE_URI is not set")
     pg = _parse_libpq(s.ducklake_uri)  # host/dbname/user[/password/port]
-    account_id = (urlparse(s.s3_endpoint).netloc or s.s3_endpoint).split(".")[0]
     return LakeSettings(
         lake_backend="postgres",
         cred_source="env",
         r2_access_key_id=s.s3_access_key_id,
         r2_secret_access_key=s.s3_secret_access_key,
-        r2_account_id=account_id,
+        r2_account_id=_r2_account_id(),
         lake_pg_host=pg["host"],
         lake_pg_port=int(pg.get("port", "5432")),
         lake_pg_dbname=pg["dbname"],

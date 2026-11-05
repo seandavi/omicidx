@@ -6,6 +6,8 @@ calls exactly what the corresponding timer calls, so a stage that failed
 overnight is re-run by hand with `omicidx-prefect run <stage>`.
 """
 
+from pathlib import Path
+
 import click
 from omicidx.prefect.semaphore import SemaphoreStore
 
@@ -175,37 +177,41 @@ def run_ducklake_maintenance() -> None:
     ducklake_maintenance()
 
 
-@run.command("parquet-export")
-@click.option("--lake-schema", default=None, help="Override source lake schema.")
-def run_parquet_export(lake_schema: str | None) -> None:
-    from omicidx.prefect.flows.ducklake import LAKE_SCHEMA
-    from omicidx.prefect.flows.parquet_export import parquet_export
-
-    parquet_export(lake_schema=lake_schema or LAKE_SCHEMA)
-
-
 @run.command("publish-bundle")
-@click.option("--date", default=None, help="Bundle date (default: today UTC).")
-def run_publish_bundle(date: str | None) -> None:
-    """Build the external bundle (duckdb views + manifest). Run after parquet-export."""
+@click.option(
+    "--out",
+    default=None,
+    type=click.Path(path_type=Path),
+    help="Keep the local build here (new or empty dir; default: a TMPDIR dir, removed).",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    help="Build and print the upload plan; write nothing to R2.",
+)
+def run_publish_bundle(out: Path | None, dry_run: bool) -> None:
+    """Build today's bundle from the lake and publish it to v{date}/ + latest/. Run after transform."""
     from omicidx.prefect.flows.publish_bundle import publish_bundle
 
-    publish_bundle(date=date)
+    publish_bundle(out=out, apply=not dry_run)
 
 
 @run.command("hf-release")
 @click.option("--date", default=None, help="v{date} folder (default: newest complete).")
-def run_hf_release(date: str | None) -> None:
+@click.option(
+    "--dry-run", is_flag=True, help="Download and print the plan; push nothing."
+)
+def run_hf_release(date: str | None, dry_run: bool) -> None:
     """Publish a dated R2 folder as the monthly HuggingFace release (tag YYYY-MM)."""
     import logging
 
     from omicidx.prefect.flows.hf_release import hf_release
 
-    # A ~73 GB copy runs for a long time; log per-file progress.
+    # A ~50 GB copy runs for a long time; log per-file progress.
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
     )
-    click.echo(hf_release(date=date))
+    click.echo(hf_release(date=date, apply=not dry_run))
 
 
 @run.command("transform")
@@ -217,16 +223,9 @@ def run_transform(environment: str) -> None:
     transform(environment=environment)
 
 
-@run.command("duckdb")
-def run_duckdb() -> None:
-    from omicidx.prefect.flows.sql import build_omicidx_duckdb
-
-    build_omicidx_duckdb()
-
-
 @run.command("daily")
 def run_daily() -> None:
-    """The downstream chain: ducklake-load -> transform -> parquet-export -> publish-bundle.
+    """The downstream chain: ducklake-load -> transform -> publish-bundle.
 
     Extraction is NOT included — each domain runs on its own timer (#149).
     """

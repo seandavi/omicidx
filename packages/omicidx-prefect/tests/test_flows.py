@@ -24,9 +24,8 @@ FLOW_MODULES = [
     "omicidx.prefect.flows.ducklake_geo_rnaseq_counts",
     "omicidx.prefect.flows.ducklake_ncbi_taxonomy",
     "omicidx.prefect.flows.ducklake_load",
-    "omicidx.prefect.flows.sql",
-    "omicidx.prefect.flows.parquet_export",
     "omicidx.prefect.flows.publish_bundle",
+    "omicidx.prefect.flows.hf_release",
     "omicidx.prefect.flows.transform",
     "omicidx.prefect.flows.main",
     # SQLMesh config: building its Postgres state connection imports psycopg2.
