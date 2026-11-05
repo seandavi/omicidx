@@ -1,8 +1,6 @@
-MODEL (
-  name sradb.run_with_study,
-  kind VIEW
-);
-
+-- description: One row per SRA run, denormalized with its experiment, sample and study.
+-- license: upstream-ncbi-ebi-terms (https://www.ncbi.nlm.nih.gov/home/about/policies/)
+-- materialized: view
 SELECT
     r.accession AS run_accession,
     r.total_spots,
@@ -20,9 +18,9 @@ SELECT
     st.accession AS study_accession,
     st.title AS study_title,
     st.study_type,
-    st.bioproject_accession AS BioProject,
+    st.bioproject_accession AS bioproject,
     sa.organism_as_submitted
-FROM stg.sra_runs r
-LEFT JOIN stg.sra_experiments e ON r.experiment_accession = e.accession
-LEFT JOIN stg.sra_samples sa ON e.sample_accession = sa.accession
-LEFT JOIN stg.sra_studies st ON e.study_accession = st.accession;
+FROM lake.stg.sra_runs r
+LEFT JOIN lake.stg.sra_experiments e ON r.experiment_accession = e.accession
+LEFT JOIN lake.stg.sra_samples sa ON e.sample_accession = sa.accession
+LEFT JOIN lake.stg.sra_studies st ON e.study_accession = st.accession

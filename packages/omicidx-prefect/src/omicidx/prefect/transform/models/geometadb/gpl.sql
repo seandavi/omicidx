@@ -1,8 +1,6 @@
-MODEL (
-  name geometadb.gpl,
-  kind VIEW
-);
-
+-- description: GEOmetadb-compatible gpl table: one row per GEO platform.
+-- license: upstream-ncbi-ebi-terms (https://www.ncbi.nlm.nih.gov/home/about/policies/)
+-- materialized: view
 SELECT
     title,
     accession AS gpl,
@@ -19,4 +17,4 @@ SELECT
     contact."name"."first" || ' ' || contact."name"."last" AS contact,
     data_row_count,
     organism_as_submitted
-FROM stg.geo_platforms;
+FROM lake.stg.geo_platforms

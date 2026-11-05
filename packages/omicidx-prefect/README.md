@@ -88,10 +88,10 @@ packages/omicidx-prefect/
 │   │   ├── ebi_biosample.py
 │   │   ├── postgres.py
 │   │   ├── sql.py           # thin duckdb-build (mart views over public Parquet)
-│   │   ├── transform.py     # SQLMesh transform (plan/apply)
+│   │   ├── transform.py     # mart views via cdsci-lake's plain-SQL runner (ADR-0008)
 │   │   └── main.py          # the downstream chain (`omicidx-downstream` unit)
-│   ├── transform/           # SQLMesh project: src→stg→geometadb/sradb marts
-│   └── sql/                 # raw→parquet SQL (010 only; 020–050 → SQLMesh)
+│   ├── transform/models/    # SQL models: src→stg→geometadb/sradb marts
+│   └── sql/                 # raw→parquet SQL (010 only; 020–050 → transform/models/)
 └── tests/
 ```
 
@@ -125,7 +125,7 @@ the recovery commands. In short:
 | weekly catalog maintenance | `omicidx-ducklake-maintenance` |
 
 The downstream chain is `ducklake-load → transform → publish-bundle`.
-`transform` is the SQLMesh mart build (lake views); `publish-bundle` is the
+`transform` is the mart build (lake views, cdsci-lake runner); `publish-bundle` is the
 reverse-ETL and the bundle in one pass (cdsci-lake ADR-0027, `cdsci.publish`):
 lake tables + marts → one local bundle of flat Parquet, the thin
 `omicidx.duckdb`/`views.sql` (views over every public Parquet file),
@@ -170,7 +170,7 @@ PUBLIC_PARQUET_HTTPS_BASE=https://data.omicidx.cancerdatasci.org  # base for vie
 3. Load: `flows/ducklake_<name>.py`, called from `flows/ducklake_load.py`,
    plus an `ops.Source` entry in `flows/sources.py`.
 4. Publish: add the lake table to `EXPORTS` in `flows/publish_bundle.py`.
-   Marts go in the SQLMesh project under `transform/`.
+   Marts go in `transform/models/<schema>/<name>.sql` (see `transform/README.md`).
 5. Schedule: an `omicidx-<name>-extract.{service,timer}` pair in `systemd/`.
 
 ## Tests

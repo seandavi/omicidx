@@ -1,8 +1,6 @@
-MODEL (
-  name geometadb.gsm,
-  kind VIEW
-);
-
+-- description: GEOmetadb-compatible gsm table: one row per GEO sample, channels 1 and 2 flattened to *_ch1/*_ch2 columns.
+-- license: upstream-ncbi-ebi-terms (https://www.ncbi.nlm.nih.gov/home/about/policies/)
+-- materialized: view
 SELECT
     title,
     accession AS gsm,
@@ -40,4 +38,4 @@ SELECT
     library_source,
     channel_organism_as_submitted[1] AS organism_ch1_as_submitted,
     channel_organism_as_submitted[2] AS organism_ch2_as_submitted
-FROM stg.geo_samples;
+FROM lake.stg.geo_samples

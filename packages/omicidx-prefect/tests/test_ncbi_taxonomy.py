@@ -1,12 +1,13 @@
 """NCBI Taxonomy (#226): the taxdump parsers and the stg views that resolve names."""
 
 import duckdb
+from cdsci.lake.transform.models import load_models
 from omicidx.prefect.flows.ducklake_ncbi_taxonomy import (
     ncbi_taxonomy_merged_sql,
     ncbi_taxonomy_sql,
 )
 
-from .test_marts_schema import MODELS_DIR, _model_select
+from .test_marts_schema import MODELS_DIR
 
 
 def _dmp(*rows: tuple) -> str:
@@ -49,6 +50,9 @@ def test_taxdump_parsers(tmp_path):
 def test_stg_views_resolve_organism_names_by_taxid():
     """stg views: current name by taxid, merges followed, submitted name kept."""
     con = duckdb.connect()
+    # The models read `lake.src.*`/`lake.stg.*`; build everything in a catalog
+    # attached under that name and make it the default for the bare names below.
+    con.execute("ATTACH ':memory:' AS lake; USE lake;")
     for schema in ("src", "stg"):
         con.execute(f"CREATE SCHEMA {schema}")
     con.execute(
@@ -105,8 +109,8 @@ def test_stg_views_resolve_organism_names_by_taxid():
         "sra_samples",
         "biosamples",
     ):
-        sql = _model_select(MODELS_DIR / "stg" / f"{view}.sql")
-        con.execute(f"CREATE VIEW stg.{view} AS {sql}")
+        sql = load_models(MODELS_DIR)[f"stg.{view}"].sql
+        con.execute(f"CREATE VIEW stg.{view} AS ({sql})")
 
     assert con.execute(
         "SELECT accession, sample_organism, sample_organism_as_submitted, "

@@ -1,8 +1,6 @@
-MODEL (
-  name stg.sra_studies,
-  kind VIEW
-);
-
+-- description: SRA studies with bioproject/geo renamed to bioproject_accession/geo_accession.
+-- license: upstream-ncbi-ebi-terms (https://www.ncbi.nlm.nih.gov/home/about/policies/)
+-- materialized: view
 SELECT
     accession,
     alias,
@@ -18,4 +16,4 @@ SELECT
     attributes,
     xrefs,
     pubmed_ids
-FROM src.sra_studies;
+FROM lake.src.sra_studies

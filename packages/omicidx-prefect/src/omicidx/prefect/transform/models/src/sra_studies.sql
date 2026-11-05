@@ -1,6 +1,4 @@
-MODEL (
-  name src.sra_studies,
-  kind VIEW
-);
-
-SELECT * FROM lake.omicidx.sra_study;
+-- description: SRA studies: a thin view over lake.omicidx.sra_study, the single seam between the marts and the lake.
+-- license: upstream-ncbi-ebi-terms (https://www.ncbi.nlm.nih.gov/home/about/policies/)
+-- materialized: view
+SELECT * FROM lake.omicidx.sra_study

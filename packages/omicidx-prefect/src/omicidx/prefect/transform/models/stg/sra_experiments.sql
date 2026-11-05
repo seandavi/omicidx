@@ -1,8 +1,6 @@
-MODEL (
-  name stg.sra_experiments,
-  kind VIEW
-);
-
+-- description: SRA experiments with library_layout_length/library_layout_sdev typed as INTEGER/DOUBLE.
+-- license: upstream-ncbi-ebi-terms (https://www.ncbi.nlm.nih.gov/home/about/policies/)
+-- materialized: view
 SELECT
     accession,
     alias,
@@ -27,4 +25,4 @@ SELECT
     attributes,
     xrefs,
     reads
-FROM src.sra_experiments;
+FROM lake.src.sra_experiments

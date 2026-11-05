@@ -84,7 +84,7 @@ The `sradb.*` and `geometadb.*` marts are published under
 ## How it's built
 
 The daily pipeline runs on Prefect (`packages/omicidx-prefect/`): NCBI/EBI →
-internal DuckLake lake → SQLMesh transform (marts) → a public bundle
+internal DuckLake lake → SQL transform (marts, cdsci-lake runner) → a public bundle
 (flat Parquet + `omicidx.duckdb` + `views.sql` + provenance manifest). See `CLAUDE.md` and `docs/specs/omicidx-deliverables.md`
 for the architecture, and [ADR-0004](docs/adrs/0004-public-serving-parquet-plus-views-sql.md)
 for the public-serving contract.

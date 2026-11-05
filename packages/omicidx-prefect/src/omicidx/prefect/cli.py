@@ -215,12 +215,11 @@ def run_hf_release(date: str | None, dry_run: bool) -> None:
 
 
 @run.command("transform")
-@click.option("--environment", default="prod", help="SQLMesh environment.")
-def run_transform(environment: str) -> None:
-    """Apply the SQLMesh marts into the lake (plan --auto-apply). Run after ducklake-load."""
+def run_transform() -> None:
+    """Rebuild the mart views in the lake (cdsci-lake runner). Run after ducklake-load."""
     from omicidx.prefect.flows.transform import transform
 
-    transform(environment=environment)
+    transform()
 
 
 @run.command("daily")

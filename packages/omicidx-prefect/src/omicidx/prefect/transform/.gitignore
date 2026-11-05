@@ -1,4 +1,0 @@
-# SQLMesh runtime artifacts — never commit
-.cache/
-logs/
-__pycache__/

@@ -1,62 +1,73 @@
-# omicidx transform layer (SQLMesh over DuckLake)
+# omicidx transform layer (plain-SQL models over DuckLake)
 
-SQLMesh is omicidx's **transform (T) engine**. It reads the `lake.omicidx.*`
-tables and materializes the derived marts (`src` → `stg` → `geometadb`/`sradb`)
-as **views inside the DuckLake catalog**. It replaces the old numbered-SQL
-runner (`sql/020–050`) with a real dependency DAG + `plan`/`apply` + a prod
-virtual environment.
+The marts are plain SQL files run by cdsci-lake's transform runner
+(`cdsci.lake.transform`, cdsci-lake ADR-0021; omicidx ADR-0008). The runner
+reads the `lake.omicidx.*` tables and materializes the derived layer
+(`src` → `stg` → `geometadb`/`sradb`) as **views inside the DuckLake catalog**,
+one `CREATE OR REPLACE VIEW lake.<schema>.<name>` per model, in dependency
+order.
 
 ## Hard boundaries
 
-- **T only.** SQLMesh never touches the raw→lake incremental load. That stays
-  cdsci-lake `upsert`/`ops` (see `DUCKLAKE.md`). SQLMesh owns the *derived*
-  layer exclusively — it must not manage the `lake.omicidx.*` base tables, which
-  are declared to it as **external models** (`external_models.yaml`).
-- **Deploy-time, not daily-data-path.** All 38 marts are `kind VIEW` — live over
-  the lake, nothing to backfill. SQLMesh acts at deploy (`transform` flow), not
-  on every daily run.
-- **prod environment only** (no dev→prod gate yet).
+- **T only.** The runner never touches the raw→lake incremental load. That
+  stays cdsci-lake `upsert`/`ops` (see `DUCKLAKE.md`). It owns the *derived*
+  layer exclusively; `lake.omicidx.*` are inputs it reads, never targets.
+- **Views only, today.** All 41 models are `-- materialized: view`, live over
+  the lake, nothing to backfill. Every run rebuilds every view (cheap DDL) and
+  counts its rows for `lake_ops.run`.
 
 ## Layout
 
 ```
 transform/
-├── config.py             # SQLMesh Config — reuses omicidx Settings for creds
-├── external_models.yaml  # the 14 lake.omicidx.* base tables (auto-introspected)
 └── models/
-    ├── src/        # 14 thin views: the single seam onto lake tables
+    ├── src/        # 14 thin views: the single seam onto lake.omicidx.* tables
     ├── stg/        # 11 typed/normalized staging views
     ├── geometadb/  # 6 GEOmetadb-compatible views (public contract)
     └── sradb/      # 10 SRAdb-compatible views (public contract)
 ```
 
-`config.py` pulls all credentials from omicidx-prefect's own `Settings`
-(`DUCKLAKE_URI`, `S3_*`), so the same `.env` that drives the pipeline drives
-SQLMesh. The DuckLake catalog attaches as `lake`; SQLMesh state lives in the
-same lake Postgres under the `sqlmesh` schema (independent of DuckLake's own
-`ducklake_*` metadata — verified to coexist).
+A model is `models/<schema>/<name>.sql` = target `lake.<schema>.<name>`. The
+file is one `SELECT` (no trailing `;`) with header directives:
+
+```sql
+-- description: one line, becomes the view comment
+-- license: upstream-ncbi-ebi-terms (...)
+-- materialized: view
+SELECT ... FROM lake.src.sra_samples s
+LEFT JOIN lake.stg.ncbi_taxonomy_names n ON ...
+```
+
+Reference other models and lake tables as `lake.<schema>.<table>`: the runner
+derives the DAG from these references (anything not a model is an external
+input) and a fully qualified name binds the same way from any default catalog.
+An optional sibling `<name>.test.sql` holds `-- test: <name>` queries that must
+return zero rows; a failing one records an `error` run. None exist yet.
+
+Connection and credentials come from omicidx's own `Settings`
+(`get_lake_connection()`, which builds cdsci-lake's `Settings` from
+`DUCKLAKE_URI` + `S3_*`), so the `.env` that drives the pipeline drives the
+transform. Nothing else is configured.
 
 ## Operate
 
-From this directory (`.env` on PATH / env vars set):
+From the workspace root with the `.env` loaded:
 
 ```bash
-# What would change? (read-only preview; safe)
-uv run sqlmesh plan
+# Rebuild every mart view in the lake, dependencies first (what the timer runs)
+uv run omicidx-prefect run transform
 
-# Apply the marts into the lake (WRITES views into the shared catalog)
-uv run sqlmesh plan --auto-apply          # or: omicidx-prefect run transform
+# Inspect the DAG / list models offline (no lake connection)
+uv run python -m cdsci.lake.transform \
+  --models-dir packages/omicidx-prefect/src/omicidx/prefect/transform/models graph
 
-# Re-introspect after an upstream lake column changes
-uv run sqlmesh create_external_models
-
-# Ad-hoc query against the applied marts
-uv run sqlmesh fetchdf "SELECT count(*) FROM sradb.study"
+# Ad-hoc query against the built marts
+uv run python -c "from omicidx.prefect.config import get_lake_connection as c; \
+  print(c(read_only=True).sql('SELECT count(*) FROM lake.sradb.study'))"
 ```
 
-In the pipeline the `omicidx-transform` Prefect flow (`flows/transform.py`) runs
-`plan(prod, auto_apply=True)` after `ducklake-load`. Idempotent: an unchanged
-plan applies nothing.
+In the pipeline `flows/transform.py` runs after `ducklake-load`
+(`flows/main.py`). Idempotent: `CREATE OR REPLACE VIEW` every time.
 
 ## Organism names (#226)
 
@@ -67,30 +78,30 @@ organism-bearing `stg` views (`geo_series`, `geo_samples`, `geo_platforms`,
 replaced by the current scientific name for the record's taxid
 (`stg.ncbi_taxonomy_names`, which follows merged taxids) and the submitted names
 kept in appended `*_as_submitted` columns. An unknown taxid keeps the submitted
-name. `parquet-export` ships those five base files from the `stg` views for the
+name. `publish-bundle` ships those five base files from the `stg` views for the
 same reason (`TAXONOMY_RESOLVED_EXPORTS`). `geo_platforms` is resolved the same
 way from its `taxid` list (#231), once every GPL has been re-extracted with it
 (`python -m omicidx.prefect.flows.geo reextract-platforms`); a NULL taxid keeps
 the submitted name.
 
-## Column lineage (Phase 2, not yet wired)
+## Runs and lineage
 
-Column-level lineage is a free byproduct — the `SELECT *` src views expand to
-real per-column edges because the base tables are declared as external models
-with columns. Headless:
+Each model runs inside `ops.run` (one `lake_ops.run` row per model,
+`source = '<schema>.<name>'`, `version = sql:<sha256[:12]>` of the file) and
+the snapshot it writes is attributed. After the view is created the runner
+replaces that model's table lineage (`lake_ops.lineage`, `edge_type =
+'sqlglot'`) and column lineage (`lake_ops.column_lineage`) from sqlglot, with
+the input schemas read from the lake so `SELECT *` expands. Lineage is
+best-effort observability and never fails a run.
 
-```python
-from sqlmesh import Context
-from sqlmesh.core.lineage import column_dependencies
-ctx = Context(paths=".")
-column_dependencies(ctx, '"lake"."sradb"."study"', "study_accession")
-# -> {'"lake"."stg"."sra_studies"': {'accession'}}
-```
-
-Syncing these edges into `ops.lineage` is Phase 2 (gated on cdsci-lake PR #19).
+The runner registers models with `writer = 'cdsci'` and does not take omicidx's
+`run_id` (systemd `INVOCATION_ID`) as `extra`; see ADR-0008 for what that means
+when attributing a mart snapshot.
 
 ## Tests
 
-`tests/test_marts_schema.py` builds the `geometadb`/`sradb` marts over synthetic
-typed `stg`/`src` tables and asserts the exact public column contract — offline,
-no live catalog. Run: `uv run pytest tests/test_marts_schema.py`.
+`tests/test_marts_schema.py` loads the models with the runner's `load_models`,
+builds the `geometadb`/`sradb` marts in the runner's dependency order over
+synthetic typed `stg`/`src` tables (in an in-memory catalog attached as
+`lake`) and asserts the exact public column contract — offline, no live
+catalog. Run: `uv run pytest packages/omicidx-prefect/tests/test_marts_schema.py`.

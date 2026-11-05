@@ -1,10 +1,8 @@
-MODEL (
-  name sradb.sra,
-  kind VIEW
-);
-
+-- description: SRAdb-compatible sra table: run x experiment x sample x study, fully denormalized.
+-- license: upstream-ncbi-ebi-terms (https://www.ncbi.nlm.nih.gov/home/about/policies/)
+-- materialized: view
 SELECT
-    ROW_NUMBER() OVER (ORDER BY r.accession) AS sra_ID,
+    ROW_NUMBER() OVER (ORDER BY r.accession) AS sra_id,
     r.alias AS run_alias,
     r.accession AS run_accession,
     r.total_spots AS spots,
@@ -42,7 +40,7 @@ SELECT
     st.description AS study_description,
     CAST(st.attributes AS VARCHAR) AS study_attribute,
     sa.organism_as_submitted AS scientific_name_as_submitted
-FROM stg.sra_runs r
-LEFT JOIN stg.sra_experiments e ON r.experiment_accession = e.accession
-LEFT JOIN stg.sra_samples sa ON e.sample_accession = sa.accession
-LEFT JOIN stg.sra_studies st ON e.study_accession = st.accession;
+FROM lake.stg.sra_runs r
+LEFT JOIN lake.stg.sra_experiments e ON r.experiment_accession = e.accession
+LEFT JOIN lake.stg.sra_samples sa ON e.sample_accession = sa.accession
+LEFT JOIN lake.stg.sra_studies st ON e.study_accession = st.accession

@@ -1,14 +1,12 @@
-"""Transform flow: apply the SQLMesh mart models into the DuckLake catalog.
+"""Transform flow: build the mart views in the DuckLake catalog (ADR-0008).
 
-SQLMesh is omicidx's transform (T) engine over DuckLake. It reads the
-`lake.omicidx.*` tables (declared as external models) and materializes the
-`src`/`stg`/`geometadb`/`sradb` marts as views inside the lake, at deploy
-time — `plan(prod, auto_apply=True)` computes the changed models and does the
-virtual-layer swap. It does NOT run in the daily data path and NEVER touches
-the raw->lake incremental load (that stays cdsci-lake `upsert`/`ops`).
-
-The project lives at ``transform/`` (config.py + models/ + external_models.yaml),
-shipped as package data. See transform/README.md.
+The marts (`src` → `stg` → `geometadb.*`/`sradb.*`) are plain SQL files under
+``transform/models/<schema>/<name>.sql``, run by cdsci-lake's transform runner
+(cdsci-lake ADR-0021). Every model is ``-- materialized: view``, so each run
+is a ``CREATE OR REPLACE VIEW lake.<schema>.<name>`` in dependency order,
+inside ``ops.run`` (one ``lake_ops.run`` row + attributed snapshot per model,
+table/column lineage into ``lake_ops``). It reads the `lake.omicidx.*` tables
+and NEVER touches the raw->lake incremental load (cdsci-lake `upsert`/`ops`).
 """
 
 import logging
@@ -16,21 +14,25 @@ from pathlib import Path
 
 log = logging.getLogger(__name__)
 
-TRANSFORM_DIR = Path(__file__).parent.parent / "transform"
+MODELS_DIR = Path(__file__).parent.parent / "transform" / "models"
 
 
-def transform(environment: str = "prod") -> None:
-    """Plan + auto-apply the SQLMesh marts against the live DuckLake catalog.
+def transform() -> None:
+    """Rebuild every mart view in the live DuckLake catalog, dependencies first.
 
-    Writes mart views into the lake. Idempotent: an unchanged plan applies
-    nothing (SQLMesh reuses fingerprinted models). Run after ``ducklake-load``.
+    Idempotent (``CREATE OR REPLACE VIEW``). Run after ``ducklake-load``.
     """
-    from sqlmesh import Context
+    from cdsci.lake.transform.models import load_models
+    from cdsci.lake.transform.runner import run_all
+    from omicidx.prefect.config import get_lake_connection
 
-    log.info(f"SQLMesh plan --auto-apply (env={environment}) from {TRANSFORM_DIR}")
-    ctx = Context(paths=str(TRANSFORM_DIR))
-    ctx.plan(environment=environment, no_prompts=True, auto_apply=True)
-    log.info("SQLMesh apply complete")
+    models = load_models(MODELS_DIR)
+    log.info(f"transform: {len(models)} models from {MODELS_DIR}")
+    with get_lake_connection() as con:
+        rows = run_all(con, models)
+    for target, n in rows.items():
+        log.info(f"transform: {target}: {n} rows")
+    log.info("transform complete")
 
 
 if __name__ == "__main__":

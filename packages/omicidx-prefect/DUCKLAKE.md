@@ -151,6 +151,17 @@ COMMIT;
 - A no-op write produces **no** snapshot, so the stamp simply doesn't land
   when nothing changed.
 
+The mart views (`transform/models/`, ADR-0008) are built by cdsci-lake's
+`cdsci.lake.transform` runner, also inside `ops.run`: one `lake_ops.run` row
+per model (`source = '<schema>.<name>'`, `version = sql:<sha256[:12]>` of the
+model file) and one attributed snapshot per `CREATE OR REPLACE VIEW`. Two
+differences from the loaders above: the runner registers models under
+`writer = 'cdsci'`, so those snapshots read `author = 'cdsci:<schema>.<name>'`,
+and it passes no `extra`, so their `run_id` is the `lake_ops` uuid, not
+systemd's `INVOCATION_ID`. A view holds no data, so every transform run is a
+"changed" snapshot. Table and column lineage for each model are replaced in
+`lake_ops.lineage` / `lake_ops.column_lineage` on every successful run.
+
 ## Retention, time travel, and maintenance
 
 **Retention is unbounded by default.** The internal lake is omicidx's
