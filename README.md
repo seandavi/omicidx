@@ -61,7 +61,7 @@ WHERE supplementary_file LIKE '%counts%' LIMIT 10;
 ## Available Data
 
 Flat base tables, one Parquet file each, at `latest/<file>.parquet` (rolling) and
-`v{date}/<file>.parquet` (immutable daily snapshots):
+`v{date}/<file>.parquet` (immutable daily snapshots: the 7 newest, plus each week's last for 5 weeks):
 
 | Dataset | File | Records | Source |
 |---------|------|---------|--------|
@@ -83,7 +83,7 @@ The `sradb.*` and `geometadb.*` marts are published under
 
 ## How it's built
 
-The daily pipeline runs on Prefect (`packages/omicidx-prefect/`): NCBI/EBI →
+The daily pipeline is plain Python on systemd timers (`packages/omicidx-prefect/`; the name is historical): NCBI/EBI →
 internal DuckLake lake → SQL transform (marts, cdsci-lake runner) → a public bundle
 (flat Parquet + `omicidx.duckdb` + `views.sql` + provenance manifest). See `CLAUDE.md` and `docs/specs/omicidx-deliverables.md`
 for the architecture, and [ADR-0004](docs/adrs/0004-public-serving-parquet-plus-views-sql.md)

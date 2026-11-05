@@ -1,6 +1,6 @@
 ---
 title: Releases
-description: Every OmicIDX version available now, latest, the dated nightly folders and the HuggingFace monthly releases, with each table's size and row count.
+description: Every OmicIDX version available now, latest, the dated daily folders and the HuggingFace monthly releases, with each table's size and row count.
 toc: false
 ---
 
@@ -138,8 +138,8 @@ Loading releases…
     const dated = listing.directories.filter((d) => /^v\d{4}-\d{2}-\d{2}\/$/.test(d)).sort().reverse();
     const monthly = refs.tags.map((t) => t.name).filter((n) => /^\d{4}-\d{2}$/.test(n)).sort().reverse();
     root.replaceChildren(
-      el("h2", { id: "nightly" }, "Nightly (query in place)"),
-      release("latest/", "rebuilt every night", () => r2Folder("latest/")),
+      el("h2", { id: "nightly" }, "Daily (query in place)"),
+      release("latest/", "rebuilt every day", () => r2Folder("latest/")),
       ...dated.map((d) => release(d, "", () => r2Folder(d))),
       el("h2", { id: "monthly" }, "Monthly (download and cite)"),
       ...(monthly.length
