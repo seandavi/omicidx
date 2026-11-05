@@ -12,7 +12,7 @@ order.
 - **T only.** The runner never touches the raw→lake incremental load. That
   stays cdsci-lake `upsert`/`ops` (see `DUCKLAKE.md`). It owns the *derived*
   layer exclusively; `lake.omicidx.*` are inputs it reads, never targets.
-- **Views only, today.** All 41 models are `-- materialized: view`, live over
+- **Views only, today.** All 48 models are `-- materialized: view`, live over
   the lake, nothing to backfill. Every run rebuilds every view (cheap DDL) and
   counts its rows for `lake_ops.run`.
 
@@ -22,7 +22,7 @@ order.
 transform/
 └── models/
     ├── src/        # 14 thin views: the single seam onto lake.omicidx.* tables
-    ├── stg/        # 11 typed/normalized staging views
+    ├── stg/        # 18 typed/normalized staging views (+7 nested-field siblings, #264)
     ├── geometadb/  # 6 GEOmetadb-compatible views (public contract)
     └── sradb/      # 10 SRAdb-compatible views (public contract)
 ```
@@ -42,7 +42,10 @@ Reference other models and lake tables as `lake.<schema>.<table>`: the runner
 derives the DAG from these references (anything not a model is an external
 input) and a fully qualified name binds the same way from any default catalog.
 An optional sibling `<name>.test.sql` holds `-- test: <name>` queries that must
-return zero rows; a failing one records an `error` run. None exist yet.
+return zero rows; a failing one records an `error` run. The six `src` parents
+of the sibling views assert their key is unique (2–31 s each on production);
+the siblings themselves carry no test because any GROUP BY over 10^8–10^9
+unnested rows costs minutes per daily run.
 
 Connection and credentials come from omicidx's own `Settings`
 (`get_lake_connection()`, which builds cdsci-lake's `Settings` from
@@ -83,6 +86,21 @@ same reason (`TAXONOMY_RESOLVED_EXPORTS`). `geo_platforms` is resolved the same
 way from its `taxid` list (#231), once every GPL has been re-extracted with it
 (`python -m omicidx.prefect.flows.geo reextract-platforms`); a NULL taxid keeps
 the submitted name.
+
+## Nested-field siblings (#264)
+
+The attribute lists stay on their parents; a **sibling view** per nested
+column unnests it to one row per `(parent key, ordinal)` in source order
+(cdsci-lake ADR-0027 "nested fields", lake name `<parent>_<field>`):
+`stg.sra_{studies,samples,experiments,runs}_attributes` (`tag`, `value`),
+`stg.biosamples_attribute_recs` (`attribute_name`, `value`, `harmonized_name`,
+`display_name`, `unit`), `stg.pubmed_articles_authors` and
+`stg.pubmed_articles_grant_ids`. They are views, not tables: the parents change
+daily and the release is where they are materialized. `(key, ordinal)` is
+unique by construction given a unique parent key, which `src/<parent>.test.sql`
+asserts. `publish-bundle` ships the SRA and BioSample ones as
+`<parent>__<field>.parquet` with an explicit `ORDER BY` on the lookup key
+(`SIBLING_EXPORTS`); the PubMed ones are lake-only (#236).
 
 ## Runs and lineage
 

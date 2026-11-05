@@ -77,6 +77,13 @@ Flat base tables, one Parquet file each, at `latest/<file>.parquet` (rolling) an
 | EBI BioSamples | `ebi_biosamples.parquet` | 54M+ | EBI BioSamples |
 | BioProjects | `bioprojects.parquet` | 1M+ | NCBI BioProject |
 
+The nested attribute lists are also published unnested as sibling tables, one
+row per `(accession, ordinal, ...)`, sorted by the lookup key so a filter such
+as `WHERE tag = 'tissue'` reads only the matching row groups:
+`sra_{studies,samples,experiments,runs}__attributes.parquet` (`tag`, `value`)
+and `biosamples__attribute_recs.parquet` (`harmonized_name`, `attribute_name`,
+`value`, ...). The parent files keep their nested column.
+
 The `sradb.*` and `geometadb.*` marts are published under
 `latest/sradb/*.parquet` and `latest/geometadb/*.parquet` and exposed as views by
 `omicidx.duckdb` above.

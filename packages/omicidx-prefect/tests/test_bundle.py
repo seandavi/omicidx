@@ -16,6 +16,7 @@ public layout (base tables at the top level, marts under ``sradb/`` and
 import functools
 import http.server
 import json
+import re
 import socketserver
 import threading
 from types import SimpleNamespace
@@ -37,11 +38,17 @@ def _fake_lake(rows: int) -> duckdb.DuckDBPyConnection:
     con = duckdb.connect()
     con.execute("ATTACH ':memory:' AS lake")
     for _schema, _table, sql in bundle_tables():
-        source = sql.removeprefix("SELECT * FROM ")
-        _, schema, table = source.split(".")
+        m = re.fullmatch(r"SELECT \* FROM lake\.(\w+)\.(\w+)(?: ORDER BY (.+))?", sql)
+        assert m, sql
+        schema, table, order_by = m.groups()
+        # A sibling's sort keys exist as columns so its ORDER BY binds.
+        keys = "".join(
+            f", 'x' AS {k.strip()}" for k in (order_by or "").split(",") if k
+        )
         con.execute(f"CREATE SCHEMA IF NOT EXISTS lake.{schema}")
         con.execute(
-            f"CREATE TABLE lake.{schema}.{table} AS SELECT range AS id FROM range({rows})"
+            f"CREATE TABLE lake.{schema}.{table} AS "
+            f"SELECT range AS id{keys} FROM range({rows})"
         )
     return con
 
@@ -72,6 +79,9 @@ def test_bundle_layout_manifest_and_anonymous_read(tmp_path, served):
     # Public layout: base tables at the top level, marts under <schema>/.
     assert (folder / "sra_runs.parquet").exists()
     assert (folder / "sradb" / "run.parquet").exists()
+    # Sibling tables sit at the top level next to their parent (#264).
+    assert (folder / "sra_samples__attributes.parquet").exists()
+    assert (folder / "biosamples__attribute_recs.parquet").exists()
     assert not (folder / "main").exists()
     assert {t["path"] for t in manifest["tables"]} == {
         bundle_path(s, t) for s, t, _ in bundle_tables()
@@ -122,6 +132,26 @@ def test_bundle_layout_manifest_and_anonymous_read(tmp_path, served):
         "SELECT DISTINCT table_type FROM information_schema.tables"
     ).fetchall() == [("BASE TABLE",)]
     local.close()
+
+
+def test_siblings_are_published_sorted_by_lookup_key():
+    """#264: every attribute sibling's publish SELECT sorts by what readers filter on,
+    so the row-group statistics let a remote reader skip the rest of the file."""
+    siblings = {t: sql for _, t, sql in bundle_tables() if "__" in t}
+    assert set(siblings) == {
+        "sra_studies__attributes",
+        "sra_samples__attributes",
+        "sra_experiments__attributes",
+        "sra_runs__attributes",
+        "biosamples__attribute_recs",
+    }
+    for table, sql in siblings.items():
+        view = table.replace("__", "_")
+        assert sql.startswith(f"SELECT * FROM lake.stg.{view} ORDER BY "), sql
+    assert siblings["sra_samples__attributes"].endswith("ORDER BY tag, value")
+    assert siblings["biosamples__attribute_recs"].endswith(
+        "ORDER BY harmonized_name, attribute_name, value"
+    )
 
 
 def test_pubmed_articles_is_not_published():

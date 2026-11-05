@@ -9,7 +9,8 @@ folder's views pointing at its own Parquet, manifest.json last, then prunes the
 dated folders ``keep_daily_weekly`` does not keep (ADR-0007).
 
 What stays here is omicidx policy: which lake tables are published and under
-which file names (``EXPORTS``, ``TAXONOMY_RESOLVED_EXPORTS``, ``MART_EXPORTS``),
+which file names (``EXPORTS``, ``TAXONOMY_RESOLVED_EXPORTS``, ``SIBLING_EXPORTS``,
+``MART_EXPORTS``),
 the public layout (base tables at the folder top level, marts under
 ``sradb/``/``geometadb/``), the retention counts, and the omicidx manifest
 fields (``publish_date``, ``dated_path``, ``transform_sha``,
@@ -75,6 +76,33 @@ TAXONOMY_RESOLVED_EXPORTS: dict[str, str] = {
     "sra_sample": "sra_samples",
 }
 
+# Sibling tables of the nested attribute columns (#264, cdsci-lake#167): the
+# stg view unnests the parent's attributes to one row per (accession, ordinal)
+# and the parent keeps its nested column. Published at the top level next to
+# the parent as <parent>__<field>.parquet, sorted by the lookup key (explicit
+# ORDER BY: the COPY does not keep row order otherwise) so a remote reader
+# skips the row groups whose tag/value range cannot match. The lake view is the
+# only materialization step that runs daily; the sort happens once per release.
+# stg view -> (public parquet filename, ORDER BY).
+SIBLING_EXPORTS: list[tuple[str, str, str]] = [
+    ("sra_studies_attributes", "sra_studies__attributes.parquet", "tag, value"),
+    ("sra_samples_attributes", "sra_samples__attributes.parquet", "tag, value"),
+    (
+        "sra_experiments_attributes",
+        "sra_experiments__attributes.parquet",
+        "tag, value",
+    ),
+    ("sra_runs_attributes", "sra_runs__attributes.parquet", "tag, value"),
+    # harmonized_name is the filter key (one spelling per concept across
+    # submitters); attribute_name second so the unharmonized rows (NULL
+    # harmonized_name, sorted last) are still grouped by the submitted name.
+    (
+        "biosamples_attribute_recs",
+        "biosamples__attribute_recs.parquet",
+        "harmonized_name, attribute_name, value",
+    ),
+]
+
 # Transform-built marts: lake.{sradb,geometadb}.* → public parquet, one file
 # per mart under <schema>/. The thin public duckdb is nothing but views over
 # exactly these files — no re-derivation. Names preserve the published
@@ -127,6 +155,14 @@ def bundle_tables(lake_schema: str = LAKE_SCHEMA) -> list[tuple[str, str, str]]:
             source = f"lake.{lake_schema}.{lake_table}"
         tables.append(
             ("main", filename.removesuffix(".parquet"), f"SELECT * FROM {source}")
+        )
+    for view, filename, order_by in SIBLING_EXPORTS:
+        tables.append(
+            (
+                "main",
+                filename.removesuffix(".parquet"),
+                f"SELECT * FROM lake.stg.{view} ORDER BY {order_by}",
+            )
         )
     for schema, table in MART_EXPORTS:
         tables.append((schema, table, f"SELECT * FROM lake.{schema}.{table}"))
