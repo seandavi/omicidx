@@ -16,7 +16,7 @@ same layout; they differ in how long they last and how you use them.
 
 | Version | Where | Changes? | Kept | Use it by |
 |---|---|---|---|---|
-| `latest/` | `https://omicidx.cancerdatasci.org/data/latest/` | rebuilt every night | always the newest | querying in place |
+| `latest/` | `https://omicidx.cancerdatasci.org/data/latest/` | rebuilt every day, by about 19:00 UTC | always the newest | querying in place |
 | Dated | `https://omicidx.cancerdatasci.org/data/v{YYYY-MM-DD}/` | never | the 7 newest, plus each week's last build (normally Sunday's) for 5 weeks | querying in place |
 | Monthly release | HuggingFace dataset [`seandavis/omicidx`](https://huggingface.co/datasets/seandavis/omicidx), git tag `YYYY-MM` | never | long term, with a DOI | downloading, then querying locally |
 
@@ -53,8 +53,10 @@ with `read_parquet` on the dated URLs, as above.
 
 ## Use a monthly release
 
-Once a month, one nightly build is copied to the HuggingFace dataset
-`seandavis/omicidx` and tagged with its month (e.g. `2026-10`). Files sit at
+On the 2nd of each month, that day's build is copied to the HuggingFace
+dataset `seandavis/omicidx` and tagged with its month (e.g. `2026-11`). The
+2nd's build is the first with the previous month's GEO records final, so the
+`2026-11` release holds all of October. Files sit at
 the repository root in the same layout as R2 (`sra_runs.parquet`,
 `sradb/study.parquet`, …).
 

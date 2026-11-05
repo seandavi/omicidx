@@ -3,7 +3,7 @@ title: Data sources
 description: Where each OmicIDX table comes from, how often it refreshes, and which public file it lands in.
 ---
 
-Each source is extracted on its own schedule. A nightly build then publishes
+Each source is extracted on its own schedule. A daily build then publishes
 whatever has been extracted so far, so one slow source never holds up the rest.
 
 | Source | Upstream | Extract cadence | Public files |
@@ -19,14 +19,29 @@ Every table is one Parquet file: `<name>.parquet` at the top of a release, or
 `sradb/<name>.parquet` / `geometadb/<name>.parquet` for the compatibility
 tables.
 
+## Schedule
+
+All times UTC.
+
+| What | When |
+|---|---|
+| Extracts | daily: SRA 01:00, EBI BioSamples 02:00, BioSample and BioProject 04:00, GEO 06:00; NCBI Taxonomy Saturdays 03:00 |
+| Daily build: new `latest/` and `v{YYYY-MM-DD}/` | starts 09:00 US Mountain time (15:00 UTC in summer, 16:00 in winter); published by about 19:00 |
+| Monthly release on HuggingFace | the 2nd of each month, about 22:00, from that day's build |
+
+So a day's build has what NCBI and EBI had published by early that morning
+(UTC). A dated folder is named for the UTC date of its build. If a source's
+extract is late or fails, the build still runs and that source's tables
+catch up the next day.
+
 ## Notes per source
 
 - **SRA:** NCBI publishes full and incremental mirror files. OmicIDX loads them in order and keeps the latest version of each record. `sra_accessions` is NCBI's accession table (status, dates, relationships for every SRA accession).
-- **GEO:** records are fetched one month at a time, by last-update date. The current month is re-fetched every night because it keeps growing, and the previous month is fetched again after it ends so its last days are complete. `geo_series_with_rnaseq_counts` lists the series for which NCBI provides computed RNA-seq count matrices.
-- **BioSample and BioProject:** NCBI publishes these as single full dumps, so each night replaces the previous load.
+- **GEO:** records are fetched one month at a time, by last-update date. The current month is re-fetched every day because it keeps growing, and so is the previous month until 00:00 UTC on the 2nd, so its last days are complete. `geo_series_with_rnaseq_counts` lists the series for which NCBI provides computed RNA-seq count matrices.
+- **BioSample and BioProject:** NCBI publishes these as single full dumps, so each day's load replaces the previous one.
 - **PubMed:** PubMed is no longer part of the OmicIDX release. The last release with `pubmed_articles.parquet` is the HuggingFace monthly release `2026-10`. PubMed is moving to its own dataset in cdsci-lake ([seandavi/cdsci-lake#136](https://github.com/seandavi/cdsci-lake/issues/136)). GEO and SRA records still carry their PubMed IDs (`geometadb.gse.pubmed_id`, `sradb.study.pubmed_ids`).
 - **Organism names:** NCBI Taxonomy renames organisms, and GEO updates its records to match without changing their last-update date. Organism names in `geo_series`, `geo_samples`, `geo_platforms`, `sra_samples`, `biosamples` and the matching `sradb/` and `geometadb/` tables are therefore the *current* NCBI Taxonomy scientific name for the record's taxonomy ID (merged IDs are followed). The name as originally submitted is kept in a matching `*_as_submitted` column (for example `sample_organism_as_submitted`). If a taxonomy ID is unknown, the submitted name is used. A platform with several organisms is resolved per organism: `organism` holds the current names, newline-joined in the submitted order, and `organism_as_submitted` the names as submitted.
-- **EBI BioSamples:** extracted daily into the internal lake (by update date, from 2021-01-01), but not published yet.
+- **EBI BioSamples:** fetched one day of updated records at a time (from 2021-01-01) and merged into `ebi_biosamples`, which keeps the latest version of each sample.
 
 ## Compatibility tables
 
