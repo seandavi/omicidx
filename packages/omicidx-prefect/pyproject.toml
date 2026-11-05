@@ -24,7 +24,7 @@ dependencies = [
     "pydantic-settings>=2.0",
     "click>=8.0",
     # [transform]: the plain-SQL runner + sqlglot that build the marts (ADR-0008).
-    "cdsci-lake[transform] @ git+https://github.com/seandavi/cdsci-lake@32feac3a1b07af4660e8fbddecde3d7d5c4ed90d",
+    "cdsci-lake[transform] @ git+https://github.com/seandavi/cdsci-lake@e0f7ca8bcabd459f3e5c99170cd9dac8bd7ced0a",
     # Shared release-bundle mechanics (cdsci-lake ADR-0027): build, upload, HF push.
     "cdsci-publish[upload,hf] @ git+https://github.com/seandavi/cdsci-lake@4bf11b1113d1d25cf1a3c36d42d20c9db9939375#subdirectory=packages/cdsci-publish",
     "huggingface-hub>=2.2.0",

@@ -258,9 +258,10 @@ def test_run_all_builds_every_view_on_a_local_lake(tmp_path):
         con.execute(f"CREATE TABLE lake.omicidx.{table} ({ddl})")
 
     models = load_models(MODELS_DIR)
-    rows = run_all(con, models)
+    rows = run_all(con, models, writer="omicidx")
 
-    assert set(rows) == set(models) and set(rows.values()) == {0}
+    # Views are not counted (cdsci-lake #168); every model is a view.
+    assert set(rows) == set(models) and set(rows.values()) == {None}
     views = {
         f"{s}.{n}"
         for s, n in con.execute(
@@ -274,6 +275,8 @@ def test_run_all_builds_every_view_on_a_local_lake(tmp_path):
     runs = ops.list_runs(con, limit=100)
     assert {r["source"] for r in runs} == set(models)
     assert {r["status"] for r in runs} == {"success"}
+    writers = con.execute(f"SELECT DISTINCT writer FROM {ops.OPS}.lake_ops.source").fetchall()
+    assert writers == [("omicidx",)]
     comment = con.execute(
         "SELECT comment FROM duckdb_views() WHERE database_name = 'lake' "
         "AND schema_name = 'sradb' AND view_name = 'study'"

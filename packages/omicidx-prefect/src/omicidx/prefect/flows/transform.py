@@ -29,9 +29,9 @@ def transform() -> None:
     models = load_models(MODELS_DIR)
     log.info(f"transform: {len(models)} models from {MODELS_DIR}")
     with get_lake_connection() as con:
-        rows = run_all(con, models)
+        rows = run_all(con, models, writer="omicidx")
     for target, n in rows.items():
-        log.info(f"transform: {target}: {n} rows")
+        log.info(f"transform: {target}: {'view' if n is None else f'{n} rows'}")
     log.info("transform complete")
 
 

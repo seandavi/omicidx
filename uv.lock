@@ -462,7 +462,7 @@ wheels = [
 [[package]]
 name = "cdsci-lake"
 version = "0.4.2"
-source = { git = "https://github.com/seandavi/cdsci-lake?rev=32feac3a1b07af4660e8fbddecde3d7d5c4ed90d#32feac3a1b07af4660e8fbddecde3d7d5c4ed90d" }
+source = { git = "https://github.com/seandavi/cdsci-lake?rev=e0f7ca8bcabd459f3e5c99170cd9dac8bd7ced0a#e0f7ca8bcabd459f3e5c99170cd9dac8bd7ced0a" }
 dependencies = [
     { name = "duckdb" },
     { name = "httpx" },
@@ -2366,7 +2366,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "anyio", extras = ["trio"], specifier = ">=4.0" },
-    { name = "cdsci-lake", extras = ["transform"], git = "https://github.com/seandavi/cdsci-lake?rev=32feac3a1b07af4660e8fbddecde3d7d5c4ed90d" },
+    { name = "cdsci-lake", extras = ["transform"], git = "https://github.com/seandavi/cdsci-lake?rev=e0f7ca8bcabd459f3e5c99170cd9dac8bd7ced0a" },
     { name = "cdsci-publish", extras = ["upload", "hf"], git = "https://github.com/seandavi/cdsci-lake?subdirectory=packages%2Fcdsci-publish&rev=4bf11b1113d1d25cf1a3c36d42d20c9db9939375" },
     { name = "click", specifier = ">=8.0" },
     { name = "duckdb", specifier = ">=1.5.3" },

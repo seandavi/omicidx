@@ -85,15 +85,13 @@ omicidx's transform layer moves onto `cdsci.lake.transform` (the
   (`source = '<schema>.<name>'`, `version = sql:<sha256[:12]>`) and an
   attributed DuckLake snapshot, plus current-state table and column lineage in
   `lake_ops` (cdsci-lake ADR-0021 §3–4). A view has no data, so every run is a
-  "changed" snapshot and `rows` is a full `count(*)` of the view; the
-  transform takes minutes rather than seconds, paid once a day.
-- **Attribution gaps (runner-side, not fixed here).** The runner registers
-  each model and asset with `writer="cdsci"` and takes no `extra`, so mart
-  snapshots carry `author = 'cdsci:<schema>.<name>'` and the `lake_ops` uuid
-  as `run_id`, not omicidx's `writer="omicidx"` and systemd's `INVOCATION_ID`
-  as the loaders do (cdsci-lake ADR-0011 §4–5). Find a mart build through
-  `lake_ops.run`, not through journald. Making the writer and `extra`
-  parameters of the runner is a cdsci-lake change (tracked from #261).
+  "changed" snapshot. The runner does not count views (cdsci-lake #168), so
+  `rows` is null for every mart.
+- **Attribution.** Models run with `writer="omicidx"` (cdsci-lake #168), so mart
+  runs, snapshots and assets are `omicidx:<schema>.<name>` (cdsci-lake ADR-0011).
+  The runner takes no `extra`, so `run_id` is the `lake_ops` uuid, not systemd's
+  `INVOCATION_ID` as with the loaders: find a mart build through `lake_ops.run`,
+  not journald.
 - **What is gone.** Virtual environments, `plan` previews, audits, the
   SQLMesh column-lineage API, and the SQLMesh-vs-DuckLake coexistence
   question. `docs/research/sqlmesh-on-ducklake.md` and
