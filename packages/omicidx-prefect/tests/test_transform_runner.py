@@ -275,7 +275,9 @@ def test_run_all_builds_every_view_on_a_local_lake(tmp_path):
     runs = ops.list_runs(con, limit=100)
     assert {r["source"] for r in runs} == set(models)
     assert {r["status"] for r in runs} == {"success"}
-    writers = con.execute(f"SELECT DISTINCT writer FROM {ops.OPS}.lake_ops.source").fetchall()
+    writers = con.execute(
+        f"SELECT DISTINCT writer FROM {ops.OPS}.lake_ops.source"
+    ).fetchall()
     assert writers == [("omicidx",)]
     comment = con.execute(
         "SELECT comment FROM duckdb_views() WHERE database_name = 'lake' "
