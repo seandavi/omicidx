@@ -1,6 +1,6 @@
 """The transform flow's runner path, offline (ADR-0008).
 
-Runs all 41 models through cdsci-lake's real ``run_all`` -- ``ops.run``,
+Runs all 48 models through cdsci-lake's real ``run_all`` -- ``ops.run``,
 ``CREATE OR REPLACE VIEW``, view comment, sqlglot lineage into ``lake_ops`` --
 against a local file-catalog DuckLake holding empty ``lake.omicidx.*`` tables
 with the production column types. No R2, no Postgres, no credentials. This is
@@ -8,9 +8,10 @@ the check that the cutover is mechanically sound before the first production
 run replaces SQLMesh's views in place.
 """
 
+import pytest
 from cdsci.lake import ops
 from cdsci.lake.transform.models import load_models
-from cdsci.lake.transform.runner import run_all
+from cdsci.lake.transform.runner import ModelTestFailure, run_all, run_model
 
 from .test_export_steel_thread import _local_lake
 from .test_marts_schema import MODELS_DIR
@@ -248,7 +249,8 @@ LAKE_TABLES: dict[str, dict[str, str]] = {
 }
 
 
-def test_run_all_builds_every_view_on_a_local_lake(tmp_path):
+def _empty_lake(tmp_path):
+    """A local DuckLake + lake_ops with every ``lake.omicidx.*`` table, empty."""
     con = _local_lake(tmp_path)
     con.execute(f"ATTACH '{tmp_path / 'ops.duckdb'}' AS {ops.OPS}")
     ops.bootstrap(con)
@@ -256,7 +258,11 @@ def test_run_all_builds_every_view_on_a_local_lake(tmp_path):
     for table, columns in LAKE_TABLES.items():
         ddl = ", ".join(f'"{c}" {t}' for c, t in columns.items())
         con.execute(f"CREATE TABLE lake.omicidx.{table} ({ddl})")
+    return con
 
+
+def test_run_all_builds_every_view_on_a_local_lake(tmp_path):
+    con = _empty_lake(tmp_path)
     models = load_models(MODELS_DIR)
     rows = run_all(con, models, writer="omicidx")
 
@@ -284,3 +290,64 @@ def test_run_all_builds_every_view_on_a_local_lake(tmp_path):
         "AND schema_name = 'sradb' AND view_name = 'study'"
     ).fetchone()[0]
     assert comment.startswith(models["sradb.study"].description)
+
+
+def test_sibling_views_unnest_one_row_per_element_in_source_order(tmp_path):
+    """#264: a sibling view has sum(len(nested)) rows, keyed (parent key, ordinal),
+    with the ordinal following the nested list's order; NULL/empty lists add none.
+    The grain is unique by construction when the parent key is, which the parent
+    ``src`` models' ``.test.sql`` assert (cheap) inside ``run_all``."""
+    con = _empty_lake(tmp_path)
+    con.execute(
+        "INSERT INTO lake.omicidx.sra_sample (accession, attributes) VALUES "
+        "('SRS1', [{'tag': 'tissue', 'value': 'liver'}, {'tag': 'sex', 'value': 'f'}]), "
+        "('SRS2', NULL), ('SRS3', [])"
+    )
+    con.execute(
+        "INSERT INTO lake.omicidx.biosample (accession, attribute_recs) VALUES "
+        "('SAMN1', [{'attribute_name': 'Tissue', 'value': 'liver', "
+        "'harmonized_name': 'tissue', 'display_name': 'tissue', 'unit': NULL}])"
+    )
+    con.execute(
+        "INSERT INTO lake.omicidx.pubmed_article (pmid, authors, grant_ids) VALUES "
+        "('1', [{'lastname': 'Zed', 'forename': 'A', 'initials': 'A', "
+        "'identifier': NULL, 'affiliation': NULL}, "
+        "{'lastname': 'Abe', 'forename': 'B', 'initials': 'B', "
+        "'identifier': NULL, 'affiliation': NULL}], "
+        "[{'grant_id': 'R01', 'grant_acronym': 'CA', 'country': 'US', 'agency': 'NCI'}])"
+    )
+    models = load_models(MODELS_DIR)
+    assert {t for t, m in models.items() if m.tests} == {
+        "src.sra_studies",
+        "src.sra_samples",
+        "src.sra_experiments",
+        "src.sra_runs",
+        "src.biosamples",
+        "src.pubmed_articles",
+    }
+    run_all(con, models, writer="omicidx")
+
+    assert con.execute(
+        "SELECT accession, ordinal, tag, value FROM lake.stg.sra_samples_attributes "
+        "ORDER BY accession, ordinal"
+    ).fetchall() == [("SRS1", 1, "tissue", "liver"), ("SRS1", 2, "sex", "f")]
+    assert con.execute(
+        "SELECT accession, ordinal, attribute_name, value, harmonized_name, "
+        "display_name, unit FROM lake.stg.biosamples_attribute_recs"
+    ).fetchall() == [("SAMN1", 1, "Tissue", "liver", "tissue", "tissue", None)]
+    assert con.execute(
+        "SELECT pmid, ordinal, lastname FROM lake.stg.pubmed_articles_authors "
+        "ORDER BY ordinal"
+    ).fetchall() == [("1", 1, "Zed"), ("1", 2, "Abe")]
+    assert con.execute(
+        "SELECT pmid, ordinal, grant_id, agency FROM lake.stg.pubmed_articles_grant_ids"
+    ).fetchall() == [("1", 1, "R01", "NCI")]
+    assert con.execute(
+        "SELECT count(*) FROM lake.stg.sra_experiments_attributes"
+    ).fetchone() == (0,)
+
+    # A duplicated parent key is the one way the grain breaks; the parent's
+    # test catches it and the runner records the model as failed.
+    con.execute("INSERT INTO lake.omicidx.sra_sample (accession) VALUES ('SRS1')")
+    with pytest.raises(ModelTestFailure, match="accession is unique"):
+        run_model(con, models["src.sra_samples"], writer="omicidx")

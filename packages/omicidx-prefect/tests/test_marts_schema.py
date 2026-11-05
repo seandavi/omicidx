@@ -332,9 +332,9 @@ def _columns(con: duckdb.DuckDBPyConnection, view: str) -> set[str]:
 
 
 def test_models_are_views_in_a_valid_dag():
-    """All 41 models load as views, reference the lake catalog, and order acyclically."""
+    """All 48 models load as views, reference the lake catalog, and order acyclically."""
     models = load_models(MODELS_DIR)
-    assert len(models) == 41
+    assert len(models) == 48
     assert {m.materialized for m in models.values()} == {"view"}
     order = topological_order(build_graph(models))
     assert sorted(order) == sorted(models)
