@@ -127,4 +127,5 @@ ORDER BY t.schema, t."table";
 
 - `transform_sha` is the commit of the [pipeline code](https://github.com/seandavi/omicidx) that built the tables.
 - `lake_snapshot_id` is the snapshot of the internal lake the tables were exported from.
-- `tables` gives the row count of each published table. `raw_partition_counts` records how many upstream partitions each source had.
+- `tables` gives the row count of each published table, and since 2026-11 also each file's `path`, `bytes`, `sha256` and `columns` (name and type). `raw_partition_counts` records how many upstream partitions each source had.
+- Since 2026-11 the manifest also follows the shared cdsci-lake bundle contract (`manifest_version`, `release`, `git_sha`, `base_url`); `release` equals `publish_date` and `git_sha` equals `transform_sha`.

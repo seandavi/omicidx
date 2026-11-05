@@ -124,12 +124,13 @@ the recovery commands. In short:
 | the whole downstream chain | `omicidx-downstream` |
 | weekly catalog maintenance | `omicidx-ducklake-maintenance` |
 
-The downstream chain is `ducklake-load → transform → parquet-export →
-publish-bundle`. `transform` is the SQLMesh mart build (lake
-views); `parquet-export` is the reverse-ETL (lake tables + marts → public
-Parquet, ADR-0004); `publish-bundle` builds the thin
-`omicidx.duckdb`/`views.sql` (views over every public Parquet file) and
-`manifest.json` into the bundle.
+The downstream chain is `ducklake-load → transform → publish-bundle`.
+`transform` is the SQLMesh mart build (lake views); `publish-bundle` is the
+reverse-ETL and the bundle in one pass (cdsci-lake ADR-0027, `cdsci.publish`):
+lake tables + marts → one local bundle of flat Parquet, the thin
+`omicidx.duckdb`/`views.sql` (views over every public Parquet file),
+`restore.sql` and `manifest.json`, uploaded to `v{date}/` and `latest/`
+(ADR-0004) and pruned (ADR-0007).
 
 **Extraction and the downstream chain are decoupled.** Nothing downstream waits
 on an extract: the chain loads whatever raw is on R2 when it starts. That is
@@ -168,7 +169,7 @@ PUBLIC_PARQUET_HTTPS_BASE=https://data.omicidx.cancerdatasci.org  # base for vie
    `PUBLISH_ROOT` and semaphores under `_semaphores/<name>/`.
 3. Load: `flows/ducklake_<name>.py`, called from `flows/ducklake_load.py`,
    plus an `ops.Source` entry in `flows/sources.py`.
-4. Publish: add the lake table to `EXPORTS` in `flows/parquet_export.py`.
+4. Publish: add the lake table to `EXPORTS` in `flows/publish_bundle.py`.
    Marts go in the SQLMesh project under `transform/`.
 5. Schedule: an `omicidx-<name>-extract.{service,timer}` pair in `systemd/`.
 

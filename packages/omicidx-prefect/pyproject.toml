@@ -24,6 +24,8 @@ dependencies = [
     "pydantic-settings>=2.0",
     "click>=8.0",
     "cdsci-lake @ git+https://github.com/seandavi/cdsci-lake@v0.3.1",
+    # Shared release-bundle mechanics (cdsci-lake ADR-0027): build, upload, HF push.
+    "cdsci-publish[upload,hf] @ git+https://github.com/seandavi/cdsci-lake@4bf11b1113d1d25cf1a3c36d42d20c9db9939375#subdirectory=packages/cdsci-publish",
     "sqlmesh>=0.236.0",
     # SQLMesh's state store is Postgres (transform/config.py: PostgresConnectionConfig).
     # Not the sqlmesh[postgres] extra: that pulls source-only psycopg2 (needs pg_config).

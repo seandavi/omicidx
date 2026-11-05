@@ -1,12 +1,12 @@
 """The downstream pipeline: everything after raw extraction (#158).
 
-    lake load → transform → parquet export → publish bundle
+    lake load → transform → publish bundle
 
 Run by `systemd/omicidx-downstream.timer` as
 `python -m omicidx.prefect.flows.main run`. One unit for the whole chain
-rather than five: the stages are strictly sequential and each one's input is
-the previous one's output, so five units would only buy `After=` ordering we
-already get for free — while adding four more things that can be half-enabled.
+rather than three: the stages are strictly sequential and each one's input is
+the previous one's output, so separate units would only buy `After=` ordering we
+already get for free — while adding more things that can be half-enabled.
 
 Recovery after a mid-chain failure is per stage, not per chain:
 `omicidx-prefect run transform`, `... run publish-bundle`, and so on. Every stage is
@@ -24,7 +24,6 @@ import logging
 import click
 from omicidx.prefect.flows.ducklake_load import ducklake_load
 from omicidx.prefect.flows.geo import fetch_rna_seq_counts
-from omicidx.prefect.flows.parquet_export import parquet_export
 from omicidx.prefect.flows.publish_bundle import publish_bundle
 from omicidx.prefect.flows.transform import transform
 
@@ -32,12 +31,11 @@ log = logging.getLogger(__name__)
 
 
 def daily_pipeline() -> None:
-    """Load the lake from raw, transform, export, publish.
+    """Load the lake from raw, transform, publish.
 
-    ``parquet_export`` returns the publish date it stamped v{date}/ with, and
-    ``publish_bundle`` is pinned to that same date, so the bundle (omicidx.duckdb
-    + views.sql + manifest) references the Parquet just written rather than
-    whatever "today" is by the time it runs.
+    ``publish_bundle`` builds the whole bundle (Parquet + omicidx.duckdb +
+    views.sql + restore.sql + manifest.json) locally in one pass over the lake,
+    then uploads it to v{date}/ and latest/ (cdsci-lake ADR-0027).
     """
     # ponytail: the one non-extract that has to lead. `fetch_rna_seq_counts` is
     # a ~1min eutils call whose output `geo_rnaseq_counts_to_ducklake` reads
@@ -46,8 +44,7 @@ def daily_pipeline() -> None:
     fetch_rna_seq_counts()
     ducklake_load()
     transform()
-    date = parquet_export()
-    publish_bundle(date=date)
+    publish_bundle()
 
 
 @click.group()
@@ -62,7 +59,7 @@ def run_command() -> None:
         level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
     )
     daily_pipeline()
-    click.echo("downstream: load → transform → export → publish complete")
+    click.echo("downstream: load → transform → publish complete")
 
 
 if __name__ == "__main__":

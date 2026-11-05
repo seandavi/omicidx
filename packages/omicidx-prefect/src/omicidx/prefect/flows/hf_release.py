@@ -1,19 +1,20 @@
 """Monthly HuggingFace release of the public Parquet set (#204, #201 D4).
 
 ``hf_release(date) -> tagged commit on hf.co/datasets/<HF_REPO_ID>``. The
-release is a verbatim copy of one complete dated R2 folder ``v{date}/``: its
-flat Parquet (top level + ``sradb/`` + ``geometadb/``) and ``manifest.json``.
-Nothing is re-derived. Two files are generated for the HF copy:
-
-- ``views.sql`` — one view per Parquet file, pointing at
-  ``hf://datasets/<HF_REPO_ID>@<tag>/…`` so the release is self-contained.
-- ``README.md`` — the dataset card, built from ``manifest.json`` + the files.
+release is a verbatim copy of one complete dated R2 folder ``v{date}/``: the
+Parquet files its ``manifest.json`` lists, and the manifest itself. Nothing is
+re-derived. The push is ``cdsci.publish.hf.hf_push`` (cdsci-lake ADR-0027):
+one commit, tagged ``YYYY-MM`` of the publish date, remote files not in the
+release deleted from ``main``; ``views.sql``/``restore.sql`` are regenerated
+over paths relative to the download directory (nothing points at ``hf://``,
+where anonymous reads are rate-limited), and ``README.md`` is the dataset card
+built here. ``omicidx.duckdb`` is not pushed: its views read R2.
 
 A folder is complete once ``manifest.json`` exists (publish writes it last).
-One commit per release, tagged ``YYYY-MM`` of the publish date. A month whose
-tag already exists is skipped, so a re-fired timer is a no-op. The download is
-resumable (files already on disk at the right size are kept) and the upload is
-xet-deduplicated, so a failed run is simply re-run.
+A month whose tag already exists is a no-op when the tag holds this
+``manifest.json`` byte for byte, and fails otherwise: a release is never
+replaced. The download is resumable (files already on disk at the right size
+are kept), so a failed run is simply re-run.
 
 DOIs are minted by hand in the HF UI per tag — they lock the repo, so that
 stays a deliberate act.
@@ -26,15 +27,14 @@ import tempfile
 from pathlib import Path
 
 import click
-import pyarrow.parquet as pq
-from huggingface_hub import CommitOperationAdd, CommitOperationDelete, HfApi
+from cdsci.publish.hf import hf_push
+from huggingface_hub import HfApi
+from huggingface_hub.errors import RepositoryNotFoundError
 from omicidx.prefect.config import get_public_upath, settings
-from omicidx.prefect.flows.parquet_export import MART_EXPORTS
 from omicidx.prefect.run import retry
 
 log = logging.getLogger(__name__)
 
-MART_SCHEMAS = sorted({schema for schema, _ in MART_EXPORTS})
 DOCS_URL = "https://omicidx.cancerdatasci.org"
 LATEST_URL = "https://data.omicidx.cancerdatasci.org/latest/"
 CODE_URL = "https://github.com/seandavi/omicidx"
@@ -62,23 +62,19 @@ def _download(src, dst: Path) -> None:
     src.fs.get_file(src.path, str(dst))
 
 
-def download_release(date: str, workdir: Path) -> list[str]:
-    """Copy v{date}/'s Parquet + manifest.json into workdir; return Parquet paths.
+def download_manifest(date: str, workdir: Path) -> dict:
+    """Copy v{date}/manifest.json into workdir and return it."""
+    _download(get_public_upath(f"v{date}", "manifest.json"), workdir / "manifest.json")
+    return json.loads((workdir / "manifest.json").read_text())
 
-    Skips everything else in the folder (``data/``, ``catalog.ducklake``,
-    ``omicidx.duckdb``, the R2 ``views.sql``).
-    """
+
+def download_release(date: str, manifest: dict, workdir: Path) -> list[str]:
+    """Copy every Parquet file ``manifest`` lists from v{date}/ into workdir."""
     folder = get_public_upath(f"v{date}")
-    files = [c for c in folder.iterdir() if c.name.endswith(".parquet")]
-    for schema in MART_SCHEMAS:
-        files += [c for c in (folder / schema).iterdir() if c.name.endswith(".parquet")]
-    rel_paths = []
-    for f in files:
-        rel = f.path.split(f"v{date}/", 1)[1]
-        _download(f, workdir / rel)
-        rel_paths.append(rel)
-    _download(folder / "manifest.json", workdir / "manifest.json")
-    return sorted(rel_paths)
+    paths = [t["path"] for t in manifest["tables"]]
+    for rel in paths:
+        _download(folder / rel, workdir / rel)
+    return paths
 
 
 def view_name(rel_path: str) -> str:
@@ -86,31 +82,15 @@ def view_name(rel_path: str) -> str:
     return rel_path.removesuffix(".parquet").replace("/", ".")
 
 
-def hf_url(tag: str, rel_path: str) -> str:
-    return f"hf://datasets/{settings().hf_repo_id}@{tag}/{rel_path}"
-
-
-def build_views_sql(tag: str, rel_paths: list[str]) -> str:
-    """CREATE VIEW per Parquet file, pinned to the release tag on HF."""
-    schemas = sorted({p.split("/")[0] for p in rel_paths if "/" in p})
-    stmts = [f"CREATE SCHEMA IF NOT EXISTS {s};" for s in schemas]
-    stmts += [
-        f"CREATE OR REPLACE VIEW {view_name(p)} AS "
-        f"SELECT * FROM read_parquet('{hf_url(tag, p)}');"
-        for p in rel_paths
-    ]
-    return "\n".join(stmts) + "\n"
-
-
 def build_card(tag: str, manifest: dict, tables: list[dict]) -> str:
-    """Dataset card. ``tables``: ``{"path", "rows", "bytes"}`` per Parquet file."""
+    """Dataset card. ``tables``: the manifest's tables, each with its file's ``bytes``."""
     configs = "\n".join(
         f"- config_name: {view_name(t['path']).replace('.', '_')}\n"
         f"  data_files: {t['path']}"
         for t in tables
     )
     rows = "\n".join(
-        f"| `{view_name(t['path'])}` | `{t['path']}` | {t['rows']:,} "
+        f"| `{view_name(t['path'])}` | `{t['path']}` | {t['row_count']:,} "
         f"| {t['bytes'] / 1e9:.2f} |"
         for t in tables
     )
@@ -174,10 +154,12 @@ DuckDB, one file:
 SELECT count(*) FROM 'hf://datasets/{repo}@{tag}/sra_studies.parquet';
 ```
 
-DuckDB, every table as a view (`views.sql` points at this release):
+Every table as a view: download the release, then `views.sql` (paths relative
+to the download directory; `restore.sql` makes a local copy instead):
 
 ```bash
-curl -sL {https}/views.sql | duckdb omicidx.duckdb
+hf download {repo} --repo-type dataset --revision {tag} --local-dir omicidx-{tag}
+cd omicidx-{tag} && duckdb omicidx.duckdb < views.sql
 duckdb omicidx.duckdb -c "SELECT count(*) FROM sradb.study"
 ```
 
@@ -217,61 +199,38 @@ remain under those providers' terms of use.
 """
 
 
-def hf_release(date: str | None = None) -> dict:
-    """Publish v{date}/ (default: newest complete) as HF release ``YYYY-MM``."""
+def hf_release(date: str | None = None, apply: bool = True) -> dict:
+    """Publish v{date}/ (default: newest complete) as HF release ``YYYY-MM``.
+
+    Dry run unless ``apply``: the folder is downloaded (and kept) and the plan
+    printed.
+    """
     date = date or latest_complete_date()
     tag = date[:7]
     repo = settings().hf_repo_id
     api = HfApi(token=settings().hf_token)
-    api.create_repo(repo, repo_type="dataset", private=False, exist_ok=True)
-    tags = {t.name for t in api.list_repo_refs(repo, repo_type="dataset").tags}
-    if tag in tags:
-        log.info(f"Release {tag} already exists on {repo}; nothing to do")
-        return {"date": date, "tag": tag, "skipped": True}
-
     workdir = Path(tempfile.gettempdir()) / "omicidx-hf-release" / f"v{date}"
-    rel_paths = download_release(date, workdir)
-    manifest = json.loads((workdir / "manifest.json").read_text())
-    tables = [
-        {
-            "path": p,
-            "rows": pq.ParquetFile(workdir / p).metadata.num_rows,
-            "bytes": (workdir / p).stat().st_size,
-        }
-        for p in rel_paths
-    ]
-    (workdir / "views.sql").write_text(build_views_sql(tag, rel_paths))
-    (workdir / "README.md").write_text(build_card(tag, manifest, tables))
-
-    # create_commit, not upload_folder: with hf_xet installed, upload_folder
-    # splits a large upload into several commits; a release is exactly one.
-    # Remote files not in this release are deleted, so a table dropped since
-    # the last release leaves main (it stays reachable at older tags).
-    local = [
-        p.relative_to(workdir).as_posix() for p in workdir.rglob("*") if p.is_file()
-    ]
-    ops: list = [CommitOperationAdd(p, workdir / p) for p in local]
-    ops += [
-        CommitOperationDelete(p)
-        for p in api.list_repo_files(repo, repo_type="dataset")
-        if p not in local and p != ".gitattributes"
-    ]
-    commit = api.create_commit(
-        repo,
-        ops,
-        repo_type="dataset",
-        commit_message=f"OmicIDX release {tag} (v{date})",
-    )
-    api.create_tag(
-        repo,
-        repo_type="dataset",
+    manifest = download_manifest(date, workdir)
+    try:
+        tags = {t.name for t in api.list_repo_refs(repo, repo_type="dataset").tags}
+    except RepositoryNotFoundError:  # before the first push
+        tags = set()
+    if tag not in tags:
+        # The tag exists: hf_push settles it from manifest.json alone (a no-op
+        # or a refusal), so the ~50 GB download is only for a real push.
+        download_release(date, manifest, workdir)
+    commit = hf_push(
+        workdir,
+        api,
+        repo=repo,
         tag=tag,
-        revision=commit.oid,
-        tag_message=f"OmicIDX release {tag} (v{date})",
+        card=build_card,
+        message=f"OmicIDX release {tag} (v{date})",
+        apply=apply,
     )
-    log.info(f"Released {repo}@{tag} from v{date} ({commit.oid})")
-    shutil.rmtree(workdir)
-    return {"date": date, "tag": tag, "commit": commit.oid}
+    if apply:
+        shutil.rmtree(workdir)
+    return {"date": date, "tag": tag, "commit": commit, "skipped": commit is None}
 
 
 @click.group()
@@ -281,11 +240,14 @@ def cli() -> None:
 
 @cli.command("run")
 @click.option("--date", default=None, help="v{date} folder (default: newest complete).")
-def run_command(date: str | None) -> None:
+@click.option(
+    "--dry-run", is_flag=True, help="Download and print the plan; push nothing."
+)
+def run_command(date: str | None, dry_run: bool) -> None:
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
     )
-    result = hf_release(date=date)
+    result = hf_release(date=date, apply=not dry_run)
     click.echo(f"hf-release: {result}")
 
 
