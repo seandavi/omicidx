@@ -1,10 +1,8 @@
-MODEL (
-  name sradb.experiment,
-  kind VIEW
-);
-
+-- description: SRAdb-compatible experiment table: one row per SRA experiment.
+-- license: upstream-ncbi-ebi-terms (https://www.ncbi.nlm.nih.gov/home/about/policies/)
+-- materialized: view
 SELECT
-    ROW_NUMBER() OVER (ORDER BY accession) AS experiment_ID,
+    ROW_NUMBER() OVER (ORDER BY accession) AS experiment_id,
     alias AS experiment_alias,
     accession AS experiment_accession,
     center_name,
@@ -26,4 +24,4 @@ SELECT
     library_layout_length,
     library_layout_sdev,
     nreads
-FROM stg.sra_experiments;
+FROM lake.stg.sra_experiments

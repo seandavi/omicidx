@@ -1,13 +1,11 @@
-MODEL (
-  name geometadb.gse,
-  kind VIEW
-);
-
+-- description: GEOmetadb-compatible gse table: one row per GEO series, plus has_geo_computed_rnaseq and modern cross-references.
+-- license: upstream-ncbi-ebi-terms (https://www.ncbi.nlm.nih.gov/home/about/policies/)
+-- materialized: view
 WITH has_geo_computed_rnaseq AS (
     SELECT
         r.accession
     FROM
-        src.geo_series_with_rnaseq_counts r
+        lake.src.geo_series_with_rnaseq_counts r
 )
 SELECT
     g.accession AS gse,
@@ -32,6 +30,6 @@ SELECT
     bioprojects,
     sra_studies,
     subseries
-FROM src.geo_series g
+FROM lake.src.geo_series g
 LEFT JOIN has_geo_computed_rnaseq h
-    ON g.accession = h.accession;
+    ON g.accession = h.accession

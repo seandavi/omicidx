@@ -32,8 +32,8 @@ it crawls the EBI BioSamples HTTP API rather than pulling an NCBI bulk file, so
 it does not contend for the bandwidth the two heavy jobs fight over.
 
 `omicidx-downstream` is the entire post-extraction chain in one unit — lake load
-→ transform → parquet export → publish bundle. One unit, not
-five: the stages are strictly sequential and each consumes the previous one's
+→ transform (mart views, cdsci-lake's plain-SQL runner, ADR-0008) → publish
+bundle. One unit, not three: the stages are strictly sequential and each consumes the previous one's
 output, so splitting them would only buy `After=` ordering the single process
 already has. It declares no `Conflicts=` with the extracts either — the load
 reads raw files that are already complete, so an extract still running at the downstream start
@@ -185,7 +185,11 @@ Snapshots written by the downstream chain carry `run_id` in their
 `commit_extra_info`, and on a scheduled run that id is systemd's
 `INVOCATION_ID` — so `journalctl _SYSTEMD_INVOCATION_ID=<id>` pulls up the log
 for any snapshot you find in the lake. (Snapshots written before #158 carry
-`prefect_run_id` instead; those ids are gone with the server.)
+`prefect_run_id` instead; those ids are gone with the server.) The exception is
+the transform stage: cdsci-lake's runner records each mart view as its own
+`lake_ops.run` row (`source = '<schema>.<name>'`) with the ledger's uuid as
+`run_id`, so a mart snapshot is found through `lake_ops.run`, then
+`journalctl --user -u omicidx-downstream` around its `started_at`.
 
 ## Logs in ClickHouse
 

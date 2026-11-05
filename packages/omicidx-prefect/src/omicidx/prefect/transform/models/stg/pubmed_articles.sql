@@ -1,8 +1,6 @@
-MODEL (
-  name stg.pubmed_articles,
-  kind VIEW
-);
-
+-- description: PubMed articles, one row per pmid, with the published column set.
+-- license: upstream-ncbi-ebi-terms (https://www.ncbi.nlm.nih.gov/home/about/policies/)
+-- materialized: view
 SELECT DISTINCT ON (pmid)
     pmid,
     title,
@@ -29,4 +27,4 @@ SELECT DISTINCT ON (pmid)
     keywords,
     "references",
     grant_ids
-FROM src.pubmed_articles;
+FROM lake.src.pubmed_articles

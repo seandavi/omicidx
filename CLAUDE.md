@@ -116,7 +116,8 @@ Long-running extraction jobs that write Parquet/NDJSON to S3-compatible storage.
 Only the unported extractors (europepmc, icite, nih_reporter) are still
 exclusive to this package; sra/geo/biosample/pubmed are superseded by
 omicidx-prefect but still present. The DuckDB SQL runner + `build-db` transform
-path was retired 2026-07 (transform now lives in omicidx-prefect / SQLMesh).
+path was retired 2026-07 (transform now lives in omicidx-prefect's
+`transform/models/`, run by cdsci-lake's plain-SQL runner, ADR-0008).
 
 Configuration is via `omicidx.etl.config.Settings` (pydantic-settings), loaded from environment or `.env`. Key variable: `PUBLISH_DIRECTORY` (default `/data/omicidx`, supports S3 URIs via `universal-pathlib`).
 
@@ -149,7 +150,7 @@ hostage (which is what GEO did for a month — #174).
 |---|---|---|
 | extracts | `flows/{sra,geo,biosample,ebi_biosample,pubmed,ncbi_taxonomy}.py` | NCBI/EBI → raw Parquet/NDJSON on R2 (`PUBLISH_ROOT`), semaphore-gated. One timer each, `python -m omicidx.prefect.flows.<name> run`. GEO's backlog drained 2026-08-17 (#174) and its timer is installed (#190); its unit holds `%t/omicidx-geo.lock`, which any manual re-extract must also take. GEO is `MAX_WORKERS = 1` on purpose — more outer concurrency makes it *slower*. |
 | `ducklake-load` | `flows/ducklake*.py` | MERGE raw → `lake.omicidx.*` (hash-gated, copy-on-write; SRA high-water-mark incremental) |
-| `transform` | `flows/transform.py` + `transform/` (SQLMesh) | `plan(prod)` materializes `src`→`stg`→`geometadb.*`/`sradb.*` marts as views in the lake |
+| `transform` | `flows/transform.py` + `transform/models/` (cdsci-lake `cdsci.lake.transform`, ADR-0008) | `CREATE OR REPLACE VIEW` every `src`→`stg`→`geometadb.*`/`sradb.*` model into the lake in dependency order, each inside `ops.run` with sqlglot lineage into `lake_ops` |
 | `publish-bundle` | `flows/publish_bundle.py` over `cdsci.publish` (cdsci-lake ADR-0027) | Reverse-ETL + bundle: COPY lake tables **and marts** into one local bundle (flat Parquet `*.parquet` + `{sradb,geometadb}/*.parquet`, **thin** `omicidx.duckdb`/`views.sql` = one `CREATE VIEW` per file, `restore.sql`, `manifest.json`), then upload it to `r2://data-omicidx/v{date}/` and `latest/` and prune (ADR-0004, ADR-0007). omicidx keeps the table list, layout, retention counts and its manifest fields; the mechanics are shared. |
 
 PubMed is extracted and loaded into the lake but not published (#236). It moves
@@ -167,7 +168,7 @@ NCBI/EBI → omicidx-parsers (XML → Pydantic) → omicidx-prefect raw-extract 
                                                          ↓
                                               ducklake-load (MERGE raw → lake.omicidx.*)
                                                          ↓
-                                              transform (SQLMesh: src → stg → marts)
+                                              transform (cdsci-lake plain-SQL runner: src → stg → marts)
                                                          ↓
                                    publish-bundle (cdsci.publish: public Parquet + omicidx.duckdb views + views.sql + restore.sql + manifest)
 ```

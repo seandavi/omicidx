@@ -1,25 +1,26 @@
 """Schema-resemblance acceptance test for the marts (Stage C / C3).
 
-Builds the geometadb.* / sradb.* SQLMesh mart models (transform/models/) in an
-in-memory DuckDB over empty, correctly-typed synthetic upstream tables, then
-asserts each mart view exposes exactly the expected column set. No network / no
-parquet / no live catalog — this checks the SQL is well-formed and that the
-modernization (drop always-NULL legacy columns, keep legacy names, add modern
-cross-refs) holds. The mapping rationale lives in
-docs/specs/omicidx-marts-adaptation.md.
+Builds the geometadb.* / sradb.* mart models (transform/models/, cdsci-lake's
+plain-SQL runner format, ADR-0008) in an in-memory DuckDB over empty,
+correctly-typed synthetic upstream tables, then asserts each mart view exposes
+exactly the expected column set. No network / no parquet / no live catalog —
+this checks the SQL is well-formed and that the modernization (drop always-NULL
+legacy columns, keep legacy names, add modern cross-refs) holds. The mapping
+rationale lives in docs/specs/omicidx-marts-adaptation.md.
 
-The marts now live as SQLMesh VIEW models (the transform engine, transform/);
-the numbered sql/040,050 runner they replaced is gone. This test strips each
-model's MODEL(...) header and materializes the SELECT as a view over synthetic
-`stg.*`/`src.*` upstreams — the same synthetic-schema check, retargeted.
+The models reference `lake.<schema>.<table>`, so the synthetic upstreams live
+in an in-memory catalog attached as `lake`; the runner's own `load_models` and
+dependency ordering pick the build order, so this also exercises the graph.
 
-End-to-end fidelity against the real parquet still requires a live-catalog run
-(ducklake-load -> transform -> parquet-export -> duckdb-build).
+End-to-end fidelity against the real lake still requires a live-catalog run
+(ducklake-load -> transform -> publish-bundle).
 """
 
 from pathlib import Path
 
 import duckdb
+from cdsci.lake.transform.graph import build_graph, topological_order
+from cdsci.lake.transform.models import load_models
 
 MODELS_DIR = (
     Path(__file__).parent.parent
@@ -46,16 +47,16 @@ _CHANNEL = (
 # marts read. Synthetic `stg.*`/`src.*` schemas stand in for the SQLMesh
 # `stg`/`src` models so the marts can be built without a live lake.
 _UPSTREAM_DDL = [
-    """CREATE TABLE stg.sra_studies (
+    """CREATE TABLE lake.stg.sra_studies (
         accession VARCHAR, alias VARCHAR, title VARCHAR, study_type VARCHAR,
         abstract VARCHAR, broker_name VARCHAR, center_name VARCHAR,
         bioproject_accession VARCHAR, description VARCHAR, attributes VARCHAR,
         geo_accession VARCHAR, pubmed_ids INTEGER[])""",
-    """CREATE TABLE stg.sra_samples (
+    """CREATE TABLE lake.stg.sra_samples (
         accession VARCHAR, alias VARCHAR, taxon_id INTEGER, organism VARCHAR,
         description VARCHAR, attributes VARCHAR, biosample VARCHAR,
         organism_as_submitted VARCHAR)""",
-    """CREATE TABLE stg.sra_experiments (
+    """CREATE TABLE lake.stg.sra_experiments (
         accession VARCHAR, alias VARCHAR, center_name VARCHAR, title VARCHAR,
         study_accession VARCHAR, design VARCHAR, sample_accession VARCHAR,
         library_name VARCHAR, library_strategy VARCHAR, library_source VARCHAR,
@@ -64,10 +65,10 @@ _UPSTREAM_DDL = [
         reads VARCHAR, platform VARCHAR, instrument_model VARCHAR,
         attributes VARCHAR, library_layout_length INTEGER,
         library_layout_sdev DOUBLE, nreads INTEGER)""",
-    """CREATE TABLE stg.sra_runs (
+    """CREATE TABLE lake.stg.sra_runs (
         accession VARCHAR, alias VARCHAR, experiment_accession VARCHAR,
         total_spots BIGINT, total_bases BIGINT, attributes VARCHAR)""",
-    f"""CREATE TABLE stg.geo_samples (
+    f"""CREATE TABLE lake.stg.geo_samples (
         title VARCHAR, accession VARCHAR, platform_id VARCHAR, status VARCHAR,
         submission_date DATE, last_update_date DATE, type VARCHAR,
         channels {_CHANNEL}[], hyb_protocol VARCHAR, description VARCHAR,
@@ -75,26 +76,26 @@ _UPSTREAM_DDL = [
         data_row_count INTEGER, channel_count INTEGER, biosample VARCHAR,
         sra_experiment VARCHAR, library_source VARCHAR,
         channel_organism_as_submitted VARCHAR[])""",
-    "CREATE TABLE src.geo_samples (accession VARCHAR, supplemental_files VARCHAR[])",
-    f"""CREATE TABLE src.geo_series (
+    "CREATE TABLE lake.src.geo_samples (accession VARCHAR, supplemental_files VARCHAR[])",
+    f"""CREATE TABLE lake.src.geo_series (
         accession VARCHAR, title VARCHAR, status VARCHAR, submission_date DATE,
         last_update_date DATE, summary VARCHAR, pubmed_id INTEGER[],
         type VARCHAR[], contributor VARCHAR[], overall_design VARCHAR,
         contact {_CONTACT}, supplemental_files VARCHAR[], sample_id VARCHAR[],
         bioprojects VARCHAR[], sra_studies VARCHAR[], subseries VARCHAR[])""",
-    f"""CREATE TABLE stg.geo_platforms (
+    f"""CREATE TABLE lake.stg.geo_platforms (
         title VARCHAR, accession VARCHAR, status VARCHAR, submission_date DATE,
         last_update_date DATE, technology VARCHAR, distribution VARCHAR,
         organism VARCHAR, manufacturer VARCHAR[], manufacture_protocol VARCHAR,
         description VARCHAR, contact {_CONTACT}, data_row_count INTEGER,
         series_id VARCHAR[], organism_as_submitted VARCHAR)""",
-    "CREATE TABLE src.geo_platforms (accession VARCHAR, series_id VARCHAR[])",
-    "CREATE TABLE src.geo_series_with_rnaseq_counts (accession VARCHAR)",
+    "CREATE TABLE lake.src.geo_platforms (accession VARCHAR, series_id VARCHAR[])",
+    "CREATE TABLE lake.src.geo_series_with_rnaseq_counts (accession VARCHAR)",
 ]
 
 EXPECTED = {
     "sradb.study": {
-        "study_ID",
+        "study_id",
         "study_alias",
         "study_accession",
         "study_title",
@@ -110,7 +111,7 @@ EXPECTED = {
         "pubmed_ids",
     },
     "sradb.sample": {
-        "sample_ID",
+        "sample_id",
         "sample_alias",
         "sample_accession",
         "taxon_id",
@@ -121,7 +122,7 @@ EXPECTED = {
         "scientific_name_as_submitted",
     },
     "sradb.experiment": {
-        "experiment_ID",
+        "experiment_id",
         "experiment_alias",
         "experiment_accession",
         "center_name",
@@ -145,7 +146,7 @@ EXPECTED = {
         "nreads",
     },
     "sradb.run": {
-        "run_ID",
+        "run_id",
         "run_alias",
         "run_accession",
         "experiment_accession",
@@ -154,7 +155,7 @@ EXPECTED = {
         "run_attribute",
     },
     "sradb.sra": {
-        "sra_ID",
+        "sra_id",
         "run_alias",
         "run_accession",
         "spots",
@@ -302,33 +303,21 @@ EXPECTED["geometadb.gsm"] = (
 )
 
 
-def _model_select(path: Path) -> str:
-    """Strip the `MODEL (...);` header, return the bare SELECT (no trailing ;)."""
-    # gen writes exactly `MODEL (...\n);\n\n<SELECT>;\n` — split on the blank
-    # line after the header block.
-    body = path.read_text().split(");\n\n", 1)[1]
-    return body.strip().rstrip(";")
-
-
 def _build() -> duckdb.DuckDBPyConnection:
     con = duckdb.connect(":memory:")
+    con.execute("ATTACH ':memory:' AS lake")
     for schema in ("stg", "src", "geometadb", "sradb"):
-        con.execute(f"CREATE SCHEMA {schema}")
+        con.execute(f"CREATE SCHEMA lake.{schema}")
     for ddl in _UPSTREAM_DDL:
         con.execute(ddl)
-    # Materialize geometadb + sradb marts as views. Convenience filters
-    # (rnaseq/wgs/human/mouse_runs) read sradb.run_with_study, so build the
-    # base marts first, filters last.
-    files = sorted((MODELS_DIR / "geometadb").glob("*.sql")) + sorted(
-        (MODELS_DIR / "sradb").glob("*.sql")
-    )
-    filters = [
-        p for p in files if p.stem.endswith("_runs") and p.stem != "run_with_study"
-    ]
-    base = [p for p in files if p not in filters]
-    for path in base + filters:
-        schema = path.parent.name
-        con.execute(f"CREATE VIEW {schema}.{path.stem} AS {_model_select(path)}")
+    # Materialize geometadb + sradb marts as views, in the runner's own
+    # dependency order (the filters read sradb.run_with_study, so it goes first).
+    models = load_models(MODELS_DIR)
+    marts = {
+        t: m for t, m in models.items() if t.split(".")[0] in ("geometadb", "sradb")
+    }
+    for target in topological_order(build_graph(marts)):
+        con.execute(f"CREATE VIEW lake.{target} AS ({marts[target].sql})")
     return con
 
 
@@ -336,10 +325,24 @@ def _columns(con: duckdb.DuckDBPyConnection, view: str) -> set[str]:
     schema, name = view.split(".")
     rows = con.execute(
         "SELECT column_name FROM information_schema.columns "
-        "WHERE table_schema = ? AND table_name = ?",
+        "WHERE table_catalog = 'lake' AND table_schema = ? AND table_name = ?",
         [schema, name],
     ).fetchall()
     return {r[0] for r in rows}
+
+
+def test_models_are_views_in_a_valid_dag():
+    """All 41 models load as views, reference the lake catalog, and order acyclically."""
+    models = load_models(MODELS_DIR)
+    assert len(models) == 41
+    assert {m.materialized for m in models.values()} == {"view"}
+    order = topological_order(build_graph(models))
+    assert sorted(order) == sorted(models)
+    # every cross-model reference is `lake.`-qualified, so the view DDL binds the
+    # same way from any default catalog (the runner writes into `lake`).
+    for m in models.values():
+        for dep in build_graph(models)[m.target]:
+            assert f"lake.{dep}" in m.sql, f"{m.target} reads {dep} unqualified"
 
 
 def test_mart_schema_resemblance():

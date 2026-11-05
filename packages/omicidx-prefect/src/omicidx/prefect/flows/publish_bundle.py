@@ -60,7 +60,7 @@ EXPORTS: list[tuple[str, str]] = [
     ("sra_accessions", "sra_accessions.parquet"),
 ]
 
-# Base files that carry organism names are COPY'd from their SQLMesh stg view
+# Base files that carry organism names are COPY'd from their stg view
 # rather than the lake table (#226). Each of these stg views is its lake table
 # column for column, except the names are resolved by taxid against current NCBI
 # Taxonomy and the submitted names ride along as extra `*_as_submitted` columns.
@@ -75,7 +75,7 @@ TAXONOMY_RESOLVED_EXPORTS: dict[str, str] = {
     "sra_sample": "sra_samples",
 }
 
-# SQLMesh-materialized marts: lake.{sradb,geometadb}.* → public parquet, one file
+# Transform-built marts: lake.{sradb,geometadb}.* → public parquet, one file
 # per mart under <schema>/. The thin public duckdb is nothing but views over
 # exactly these files — no re-derivation. Names preserve the published
 # sradb.*/geometadb.* contract verbatim. Authoritative against transform/models/.

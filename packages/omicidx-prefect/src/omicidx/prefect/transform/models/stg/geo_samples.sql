@@ -1,8 +1,6 @@
-MODEL (
-  name stg.geo_samples,
-  kind VIEW
-);
-
+-- description: GEO samples with each channel's organism resolved to current NCBI Taxonomy names by taxid (#226); the submitted names are kept as channel_organism_as_submitted.
+-- license: upstream-ncbi-ebi-terms (https://www.ncbi.nlm.nih.gov/home/about/policies/)
+-- materialized: view
 -- The lake table, column for column, with channels[].organism renamed to
 -- current NCBI Taxonomy by channels[].taxid (#226). A channel's organism is
 -- its organisms newline-joined, aligned with its taxid list; unresolvable
@@ -15,7 +13,7 @@ WITH channels AS (
             accession,
             unnest(channels) AS c,
             generate_subscripts(channels, 1) AS ci
-        FROM src.geo_samples
+        FROM lake.src.geo_samples
     )
 ),
 channel_taxa AS (
@@ -35,7 +33,7 @@ channel_names AS (
         string_agg(coalesce(n.scientific_name, t.organism), chr(10) ORDER BY t.ti)
             AS organism
     FROM channel_taxa t
-    LEFT JOIN stg.ncbi_taxonomy_names n ON n.tax_id = t.taxid
+    LEFT JOIN lake.stg.ncbi_taxonomy_names n ON n.tax_id = t.taxid
     GROUP BY t.accession, t.ci
 ),
 resolved AS (
@@ -54,5 +52,5 @@ SELECT
         ) AS channels
     ),
     list_transform(g.channels, lambda ch: ch.organism) AS channel_organism_as_submitted
-FROM src.geo_samples g
-LEFT JOIN resolved r ON r.accession = g.accession;
+FROM lake.src.geo_samples g
+LEFT JOIN resolved r ON r.accession = g.accession

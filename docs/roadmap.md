@@ -11,8 +11,8 @@ the paper Tracks (A–D) below are otherwise unchanged. What shipped:
 
 - **Track C (internal DuckLake migration) — core done.** `lake.omicidx.*` is
   live on the shared cdsci-lake Postgres catalog (data at `r2://cdsci-lake/`);
-  every source loads via copy-on-write MERGE; SQLMesh is the transform engine
-  (`src`→`stg`→`sradb.*`/`geometadb.*` marts). Prefect is the sole orchestrator.
+  every source loads via copy-on-write MERGE; cdsci-lake's plain-SQL runner is
+  the transform engine (`src`→`stg`→`sradb.*`/`geometadb.*` marts, ADR-0008). Prefect is the sole orchestrator.
 - **Track A (public snapshot) — mechanism built, not yet tagged v1.0.** The daily
   frozen bundle publishes flat Parquet (`latest/` + immutable `v{date}/`), a
   read-only `catalog.ducklake`, a thin marts-only `omicidx.duckdb`, `views.sql`,

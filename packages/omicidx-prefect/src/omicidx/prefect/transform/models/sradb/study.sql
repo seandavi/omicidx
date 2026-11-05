@@ -1,10 +1,8 @@
-MODEL (
-  name sradb.study,
-  kind VIEW
-);
-
+-- description: SRAdb-compatible study table: one row per SRA study.
+-- license: upstream-ncbi-ebi-terms (https://www.ncbi.nlm.nih.gov/home/about/policies/)
+-- materialized: view
 SELECT
-    ROW_NUMBER() OVER (ORDER BY accession) AS study_ID,
+    ROW_NUMBER() OVER (ORDER BY accession) AS study_id,
     alias AS study_alias,
     accession AS study_accession,
     title AS study_title,
@@ -18,4 +16,4 @@ SELECT
     bioproject_accession,
     geo_accession,
     pubmed_ids
-FROM stg.sra_studies;
+FROM lake.stg.sra_studies
