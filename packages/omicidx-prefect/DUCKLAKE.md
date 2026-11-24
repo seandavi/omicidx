@@ -63,6 +63,7 @@ namespace/key mirrors the path layout (`omicidx-prefect semaphores list
 | EBI BioSample | calendar day | `ebi_biosample` | `<YYYY-MM-DD>` | current day always re-runs |
 | PubMed | individual XML file | `pubmed` | `<file id>` | |
 | NCBI Taxonomy | full taxdump per run | `ncbi_taxonomy` | `<date>` | loader reads the newest |
+| MetaHQ | Zenodo release tarball | `metahq` | `<version>` (`v1.2.0`) | loader reads the newest version |
 
 Namespace and key are the two positional args to
 `omicidx-prefect semaphores clear`, e.g.

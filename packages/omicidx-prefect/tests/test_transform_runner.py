@@ -1,6 +1,6 @@
 """The transform flow's runner path, offline (ADR-0008).
 
-Runs all 48 models through cdsci-lake's real ``run_all`` -- ``ops.run``,
+Runs all 51 models through cdsci-lake's real ``run_all`` -- ``ops.run``,
 ``CREATE OR REPLACE VIEW``, view comment, sqlglot lineage into ``lake_ops`` --
 against a local file-catalog DuckLake holding empty ``lake.omicidx.*`` tables
 with the production column types. No R2, no Postgres, no credentials. This is
@@ -132,6 +132,22 @@ LAKE_TABLES: dict[str, dict[str, str]] = {
     "ncbi_taxonomy_merged": {
         "old_tax_id": "BIGINT",
         "new_tax_id": "BIGINT",
+    },
+    "metahq_annotation": {
+        "level": "TEXT",
+        "accession": "TEXT",
+        "attribute": "TEXT",
+        "source": "TEXT",
+        "ecode": "TEXT",
+        "value": "TEXT",
+        "metahq_version": "TEXT",
+    },
+    "metahq_ontology_term": {
+        "term_id": "TEXT",
+        "ontology": "TEXT",
+        "name": "TEXT",
+        "type": "TEXT",
+        "metahq_version": "TEXT",
     },
     "pubmed_article": {
         "pmid": "TEXT",

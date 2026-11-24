@@ -14,10 +14,11 @@ whatever has been extracted so far, so one slow source never holds up the rest.
 | EBI BioSamples | [BioSamples API](https://www.ebi.ac.uk/biosamples/samples), one day of updated records at a time | daily | `ebi_biosamples` |
 | NCBI BioProject | [`bioproject.xml`](https://ftp.ncbi.nlm.nih.gov/bioproject/) full dump | daily | `bioprojects` |
 | NCBI Taxonomy | [`taxdump.tar.gz`](https://ftp.ncbi.nlm.nih.gov/pub/taxonomy/) | weekly | none: used to resolve organism names |
+| MetaHQ | [Zenodo record 17663086](https://doi.org/10.5281/zenodo.17663086), newest version | checked daily (new releases are occasional) | `metahq_annotations`, `metahq_entities`, `metahq_ontology_terms`, `metahq_ontology_synonyms`, `metahq_ontology_ancestors`, `metahq_refinebio_map`, `metahq_external_links`; `metahq/annotation` |
 
 Every table is one Parquet file: `<name>.parquet` at the top of a release, or
-`sradb/<name>.parquet` / `geometadb/<name>.parquet` for the compatibility
-tables.
+`sradb/<name>.parquet` / `geometadb/<name>.parquet` / `metahq/<name>.parquet`
+for the compatibility and annotation tables.
 
 ## Schedule
 
@@ -25,7 +26,7 @@ All times UTC.
 
 | What | When |
 |---|---|
-| Extracts | daily: SRA 01:00, EBI BioSamples 02:00, BioSample and BioProject 04:00, GEO 06:00; NCBI Taxonomy Saturdays 03:00 |
+| Extracts | daily: SRA 01:00, EBI BioSamples 02:00, BioSample and BioProject 04:00, MetaHQ check 05:00, GEO 06:00; NCBI Taxonomy Saturdays 03:00 |
 | Daily build: new `latest/` and `v{YYYY-MM-DD}/` | starts 09:00 US Mountain time (15:00 UTC in summer, 16:00 in winter); published by about 19:00 |
 | Monthly release on HuggingFace | the 2nd of each month, about 22:00, from that day's build |
 
@@ -41,11 +42,13 @@ catch up the next day.
 - **BioSample and BioProject:** NCBI publishes these as single full dumps, so each day's load replaces the previous one.
 - **PubMed:** PubMed is no longer part of the OmicIDX release. The last release with `pubmed_articles.parquet` is the HuggingFace monthly release `2026-10`. PubMed is moving to its own dataset in cdsci-lake ([seandavi/cdsci-lake#136](https://github.com/seandavi/cdsci-lake/issues/136)). GEO and SRA records still carry their PubMed IDs (`geometadb.gse.pubmed_id`, `sradb.study.pubmed_ids`).
 - **Organism names:** NCBI Taxonomy renames organisms, and GEO updates its records to match without changing their last-update date. Organism names in `geo_series`, `geo_samples`, `geo_platforms`, `sra_samples`, `biosamples` and the matching `sradb/` and `geometadb/` tables are therefore the *current* NCBI Taxonomy scientific name for the record's taxonomy ID (merged IDs are followed). The name as originally submitted is kept in a matching `*_as_submitted` column (for example `sample_organism_as_submitted`). If a taxonomy ID is unknown, the submitted name is used. A platform with several organisms is resolved per organism: `organism` holds the current names, newline-joined in the submitted order, and `organism_as_submitted` the names as submitted.
+- **MetaHQ:** harmonized GEO tissue, disease, sex and age annotations from about 15 curated sources (Gemma, DiSignAtlas, ALE, …), mapped to UBERON and MONDO by the [KrishnanLab](https://github.com/krishnanlab/meta-hq). `metahq_annotations` has one row per (`level`, `accession`, `attribute`, `source`, `value`), where `level` is `sample` (GSM) or `series` (GSE). `metahq_ontology_ancestors` is the reflexive is-a closure, so every sample annotated with brain or anything under it is `metahq_annotations JOIN metahq_ontology_ancestors ON value = term_id WHERE ancestor_id = 'UBERON:0000955'`. Each table has a `metahq_version` column (for example `v1.2.0`). **License: [CC-BY-NC-4.0](https://creativecommons.org/licenses/by-nc/4.0/)**, unlike the rest of OmicIDX: non-commercial use only, and cite [MetaHQ](https://doi.org/10.5281/zenodo.17663086).
 - **EBI BioSamples:** fetched one day of updated records at a time (from 2021-01-01) and merged into `ebi_biosamples`, which keeps the latest version of each sample.
 
 ## Compatibility tables
 
 - **`sradb/`** (`study`, `sample`, `experiment`, `run`, `sra`, `run_with_study`, `rnaseq_runs`, `wgs_runs`, `human_runs`, `mouse_runs`): SRAdb-style names and columns. Legacy columns that are always empty are dropped. Modern cross-references (BioProject, GEO, PubMed) are added.
 - **`geometadb/`** (`gse`, `gsm`, `gpl`, `gse_gsm`, `gse_gpl`, `geo_supplemental_files`): GEOmetadb-style tables.
+- **`metahq/`** (`annotation`): `metahq_annotations` with the ontology term name beside each value.
 
 Row counts for every published table are in each release's `manifest.json`.

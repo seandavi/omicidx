@@ -127,6 +127,14 @@ def run_ncbi_taxonomy(force: bool) -> None:
     ncbi_taxonomy_extract(force=force)
 
 
+@run.command("metahq")
+@click.option("--force", is_flag=True)
+def run_metahq(force: bool) -> None:
+    from omicidx.prefect.flows.metahq import metahq_extract
+
+    metahq_extract(force=force)
+
+
 @run.command("ebi-biosample")
 @click.option("--start-day", default="2021-01-01")
 @click.option("--end-day", default=None)

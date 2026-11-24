@@ -12,7 +12,7 @@ What stays here is omicidx policy: which lake tables are published and under
 which file names (``EXPORTS``, ``TAXONOMY_RESOLVED_EXPORTS``, ``SIBLING_EXPORTS``,
 ``MART_EXPORTS``),
 the public layout (base tables at the folder top level, marts under
-``sradb/``/``geometadb/``), the retention counts, and the omicidx manifest
+``sradb/``/``geometadb/``/``metahq/``), the retention counts, and the omicidx manifest
 fields (``publish_date``, ``dated_path``, ``transform_sha``,
 ``lake_snapshot_id``, ``raw_partition_counts``), kept beside the shared ones so
 no existing reader breaks.
@@ -59,6 +59,14 @@ EXPORTS: list[tuple[str, str]] = [
     ("sra_experiment", "sra_experiments.parquet"),
     ("sra_run", "sra_runs.parquet"),
     ("sra_accessions", "sra_accessions.parquet"),
+    # MetaHQ (#266): CC-BY-NC-4.0, unlike everything above; see METAHQ_NOTICE.
+    ("metahq_annotation", "metahq_annotations.parquet"),
+    ("metahq_entity", "metahq_entities.parquet"),
+    ("metahq_ontology_term", "metahq_ontology_terms.parquet"),
+    ("metahq_ontology_synonym", "metahq_ontology_synonyms.parquet"),
+    ("metahq_ontology_ancestor", "metahq_ontology_ancestors.parquet"),
+    ("metahq_refinebio_map", "metahq_refinebio_map.parquet"),
+    ("metahq_external_link", "metahq_external_links.parquet"),
 ]
 
 # Base files that carry organism names are COPY'd from their stg view
@@ -124,7 +132,25 @@ MART_EXPORTS: list[tuple[str, str]] = [
     ("geometadb", "gse_gsm"),
     ("geometadb", "gse_gpl"),
     ("geometadb", "geo_supplemental_files"),
+    ("metahq", "annotation"),
 ]
+
+# MetaHQ is redistributed under CC-BY-NC-4.0, so each MetaHQ table's manifest
+# comment carries the license and the citation the license requires.
+METAHQ_NOTICE = (
+    "MetaHQ (Hicks et al., KrishnanLab), https://doi.org/10.5281/zenodo.17663086. "
+    "License: CC-BY-NC-4.0 (https://creativecommons.org/licenses/by-nc/4.0/): "
+    "non-commercial use, attribution required."
+)
+
+
+def table_docs(name: str) -> tuple[str | None, dict]:
+    """``"schema.table"`` -> (manifest comment, column docs)."""
+    schema, table = name.split(".")
+    if table.startswith("metahq_") or schema == "metahq":
+        return METAHQ_NOTICE, {}
+    return None, {}
+
 
 # Semaphore namespaces to summarize in the manifest (DUCKLAKE.md raw-partition
 # table). SRA fans out per entity under sra/<entity>.
@@ -137,6 +163,7 @@ RAW_NAMESPACES = [
     "biosample",
     "bioproject",
     "ebi_biosample",
+    "metahq",
 ]
 
 
@@ -219,7 +246,7 @@ def build_bundle(
         con,
         out,
         tables=bundle_tables(lake_schema),
-        docs=lambda name: (None, {}),
+        docs=table_docs,
         base_url=f"{base.rstrip('/')}/latest",
         db_file=DB_FILE,
         code_dir=Path(__file__).resolve().parent,

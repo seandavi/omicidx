@@ -1,0 +1,12 @@
+[Unit]
+Description=Daily MetaHQ new-release check
+
+[Timer]
+# Daily, ahead of the 09:00 America/Denver omicidx-downstream load, so a new
+# Zenodo release publishes the same morning. A no-op run is one API call.
+OnCalendar=*-*-* 05:00:00 UTC
+RandomizedDelaySec=1800
+Persistent=true
+
+[Install]
+WantedBy=timers.target

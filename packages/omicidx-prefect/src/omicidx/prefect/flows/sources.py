@@ -71,4 +71,12 @@ OMICIDX_SOURCES: tuple[ops.Source, ...] = (
         "ncbi-ftp",
         "us-public-domain",
     ),
+    ops.Source(
+        "metahq",
+        "omicidx",
+        "MetaHQ harmonized GEO tissue/disease/sex/age annotations + UBERON/MONDO closure (Zenodo)",
+        "irregular",
+        "zenodo",
+        "cc-by-nc-4.0",
+    ),
 )

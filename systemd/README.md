@@ -14,6 +14,7 @@ server, no worker container, and no deployment manifest — `prefect.yaml`,
 | `omicidx-sra-extract` | `python -m omicidx.prefect.flows.sra run` | daily 01:00 UTC (+≤30m jitter) |
 | `omicidx-ebi-biosample-extract` | `python -m omicidx.prefect.flows.ebi_biosample run` | daily 02:00 UTC (+≤30m jitter) |
 | `omicidx-biosample-extract` | `python -m omicidx.prefect.flows.biosample run` | daily 04:00 UTC (+≤30m jitter) |
+| `omicidx-metahq-extract` | `python -m omicidx.prefect.flows.metahq run` | daily 05:00 UTC (+≤30m jitter) |
 | `omicidx-geo-extract` | `python -m omicidx.prefect.flows.geo run` | daily 06:00 UTC (+≤30m jitter) |
 | `omicidx-pubmed-extract` | `python -m omicidx.prefect.flows.pubmed run` | hourly (+≤5m jitter) |
 | `omicidx-ncbi-taxonomy-extract` | `python -m omicidx.prefect.flows.ncbi_taxonomy run` | Saturday 03:00 UTC (+≤30m jitter) |
@@ -215,6 +216,20 @@ WHERE unit LIKE 'omicidx-%' AND level IN ('ERROR', 'CRITICAL')
 SELECT unit, max(timestamp) AS last_line FROM systemd_user_jobs
 WHERE unit LIKE 'omicidx-%' GROUP BY unit
 HAVING last_line < now() - INTERVAL 26 HOUR;
+```
+
+## MetaHQ: the new-release check
+
+`omicidx-metahq-extract` is MetaHQ's new-version check and its extract in one
+(#266). Each run asks Zenodo for the concept record's newest version; a version
+already landed is a no-op, and a new one lands whole under
+`metahq/raw/<version>/`, so the next `omicidx-downstream` loads and publishes
+it. Install it like the others:
+
+```bash
+cp systemd/omicidx-metahq-extract.{service,timer} ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now omicidx-metahq-extract.timer
 ```
 
 ## GEO: never stack two extracts

@@ -28,6 +28,8 @@ dependencies = [
     # Shared release-bundle mechanics (cdsci-lake ADR-0027): build, upload, HF push.
     "cdsci-publish[upload,hf] @ git+https://github.com/seandavi/cdsci-lake@4bf11b1113d1d25cf1a3c36d42d20c9db9939375#subdirectory=packages/cdsci-publish",
     "huggingface-hub>=2.2.0",
+    # `bson` for MetaHQ's annotation files (#266).
+    "pymongo>=4.0",
 ]
 
 [project.scripts]

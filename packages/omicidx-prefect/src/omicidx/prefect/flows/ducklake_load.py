@@ -26,6 +26,7 @@ from omicidx.prefect.flows.ducklake_geo import (
 from omicidx.prefect.flows.ducklake_geo_rnaseq_counts import (
     geo_rnaseq_counts_to_ducklake,
 )
+from omicidx.prefect.flows.ducklake_metahq import metahq_to_ducklake
 from omicidx.prefect.flows.ducklake_ncbi_taxonomy import ncbi_taxonomy_to_ducklake
 from omicidx.prefect.flows.ducklake_pubmed import pubmed_to_ducklake
 from omicidx.prefect.flows.ducklake_sra import (
@@ -74,6 +75,7 @@ def ducklake_load(lake_schema: str = LAKE_SCHEMA, force: bool = False) -> None:
     sra_accessions_to_ducklake(lake_schema=lake_schema)
     pubmed_to_ducklake(lake_schema=lake_schema)
     ncbi_taxonomy_to_ducklake(lake_schema=lake_schema)
+    metahq_to_ducklake(lake_schema=lake_schema)
 
 
 # ponytail: the weekly-maintenance wrapper that used to sit here existed only
