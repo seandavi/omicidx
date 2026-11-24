@@ -30,6 +30,9 @@ dependencies = [
     "huggingface-hub>=2.2.0",
     # `bson` for MetaHQ's annotation files (#266).
     "pymongo>=4.0",
+    # ponytail: cdsci-lake's ops.register_asset needs pytz but only its [ingest]
+    # extra declares it; drop this once the pin moves past the fix (https://github.com/seandavi/cdsci-lake/issues/172).
+    "pytz>=2025.1",
 ]
 
 [project.scripts]
