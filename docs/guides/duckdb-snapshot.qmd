@@ -39,10 +39,12 @@ citation](versions-and-citation.qmd) for which to use, and
 | `<table>.parquet` | One file per source table: `sra_studies`, `sra_samples`, `sra_experiments`, `sra_runs`, `sra_accessions`, `geo_series`, `geo_samples`, `geo_platforms`, `geo_series_with_rnaseq_counts`, `biosamples`, `ebi_biosamples`, `bioprojects` |
 | `sradb/<table>.parquet` | SRAdb-compatible tables |
 | `geometadb/<table>.parquet` | GEOmetadb-compatible tables |
+| `metahq_*.parquet`, `metahq/annotation.parquet` | MetaHQ harmonized GEO annotations ([CC-BY-NC-4.0](https://creativecommons.org/licenses/by-nc/4.0/), see [data sources](../overview/data-sources.qmd)) |
 | `omicidx.duckdb` | A small DuckDB database with a view over every Parquet file |
 | `views.sql` | The same views as plain SQL |
 | `restore.sql` | Builds a local copy of every table (see [Work offline](#work-offline)). Older dated folders don't have it |
 | `manifest.json` | Publish date, transform commit, lake snapshot id, row counts |
+| `croissant.json` | [Croissant](https://mlcommons.org/croissant/) 1.1 metadata: every file with its URL, checksum and columns. Folders from before 2026-11-24 don't have it |
 
 You can browse a folder listing in your browser, e.g.
 [`latest/`](https://omicidx.cancerdatasci.org/data/latest/).

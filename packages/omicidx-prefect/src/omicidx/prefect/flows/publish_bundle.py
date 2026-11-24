@@ -144,6 +144,37 @@ METAHQ_NOTICE = (
 )
 
 
+# Croissant 1.1 dataset metadata (#269): what the manifest cannot supply.
+# cdsci.publish writes croissant.json beside manifest.json, and the upload
+# rewrites its URLs for each folder. The license is a list because the bundle
+# mixes sources; the MetaHQ record sets also carry METAHQ_NOTICE.
+CROISSANT_DATASET = {
+    "name": "omicidx",
+    "description": (
+        "Public, queryable index of NCBI SRA, GEO, BioSample and BioProject, "
+        "EBI BioSamples, and MetaHQ annotation metadata, published daily as "
+        "Parquet over anonymous HTTPS."
+    ),
+    "url": "https://omicidx.cancerdatasci.org",
+    "license": [
+        "https://www.ncbi.nlm.nih.gov/home/about/policies/",
+        "https://www.ebi.ac.uk/about/terms-of-use/",
+        "https://creativecommons.org/licenses/by-nc/4.0/",
+    ],
+    "creator": {
+        "@type": "sc:Person",
+        "name": "Sean Davis",
+        "url": "https://github.com/seandavi",
+    },
+    "citeAs": (
+        "Davis S. OmicIDX: a public index of omics metadata. "
+        "https://omicidx.cancerdatasci.org"
+    ),
+    "keywords": ["SRA", "GEO", "BioSample", "BioProject", "metadata", "genomics"],
+    "isLiveDataset": True,
+}
+
+
 def table_docs(name: str) -> tuple[str | None, dict]:
     """``"schema.table"`` -> (manifest comment, column docs)."""
     schema, table = name.split(".")
@@ -252,6 +283,7 @@ def build_bundle(
         code_dir=Path(__file__).resolve().parent,
         path=bundle_path,
         only=only,
+        dataset=CROISSANT_DATASET,
     )
     manifest.update(omicidx_manifest_fields(manifest, con))
     (out / "manifest.json.tmp").write_text(json.dumps(manifest, indent=2) + "\n")

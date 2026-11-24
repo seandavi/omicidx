@@ -108,6 +108,15 @@ def test_bundle_layout_manifest_and_anonymous_read(tmp_path, served):
         for t in written["tables"]
     )
 
+    # croissant.json (#269): one file + record set per table, URLs in this folder.
+    doc = json.loads((folder / "croissant.json").read_text())
+    assert doc["conformsTo"] == "http://mlcommons.org/croissant/1.1"
+    assert doc["version"] == written["release"]
+    assert {f["contentUrl"] for f in doc["distribution"]} == {
+        f"{served}/latest/{t['path']}" for t in written["tables"]
+    }
+    assert len(doc["recordSet"]) == len(written["tables"])
+
     # Anonymous client: fresh connection, NO secrets, read-only open.
     client = duckdb.connect(str(folder / DB_FILE), read_only=True)
     try:
